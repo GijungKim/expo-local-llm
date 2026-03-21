@@ -32,6 +32,9 @@ class ExpoLocalLlmModule : Module() {
 
     Class(LLMSession::class) {
       Constructor { config: SessionConfig ->
+        if (!config.tools.isNullOrEmpty()) {
+          throw ToolNotSupportedException()
+        }
         LLMSession(appContext.reactContext!!, config)
       }
 
@@ -47,6 +50,24 @@ class ExpoLocalLlmModule : Module() {
         session.cancelStream()
       }
 
+      // Tool calling stubs — not yet supported on Android
+      Function("registerTool") { _: LLMSession, _: ToolConfig ->
+        throw ToolNotSupportedException()
+      }
+
+      Function("unregisterTool") { _: LLMSession, _: String ->
+        throw ToolNotSupportedException()
+      }
+
+      Function("resolveToolCall") { _: LLMSession, _: String, _: String ->
+        throw ToolNotSupportedException()
+      }
+
+      Function("rejectToolCall") { _: LLMSession, _: String, _: String ->
+        throw ToolNotSupportedException()
+      }
+
+      Events("token", "streamComplete", "streamError", "toolCall")
     }
 
     OnActivityDestroys {

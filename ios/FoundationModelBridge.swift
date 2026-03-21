@@ -23,11 +23,18 @@ enum FoundationModelBridge {
     }
   }
 
-  static func createSession(instructions: String?) -> LanguageModelSession {
-    if let instructions {
-      return LanguageModelSession(instructions: instructions)
+  static func createSession(instructions: String?, tools: [any Tool] = []) -> LanguageModelSession {
+    if tools.isEmpty {
+      if let instructions {
+        return LanguageModelSession(instructions: instructions)
+      }
+      return LanguageModelSession()
+    } else {
+      if let instructions {
+        return LanguageModelSession(tools: tools, instructions: instructions)
+      }
+      return LanguageModelSession(tools: tools)
     }
-    return LanguageModelSession()
   }
 
   static func respond(session: Any, prompt: String) async throws -> String {

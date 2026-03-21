@@ -36,6 +36,24 @@ public class ExpoLocalLlmModule: Module {
         session.cancelStream()
       }
 
+      // Tool calling support
+      Function("registerTool") { (session: LLMSession, config: ToolConfig) in
+        session.registerTool(config: config)
+      }
+
+      Function("unregisterTool") { (session: LLMSession, name: String) in
+        session.unregisterTool(name: name)
+      }
+
+      Function("resolveToolCall") { (session: LLMSession, callId: String, result: String) in
+        try session.resolveToolCall(callId: callId, result: result)
+      }
+
+      Function("rejectToolCall") { (session: LLMSession, callId: String, error: String) in
+        try session.rejectToolCall(callId: callId, error: error)
+      }
+
+      Events("token", "streamComplete", "streamError", "toolCall")
     }
 
     OnAppEntersForeground {

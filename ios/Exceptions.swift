@@ -17,3 +17,27 @@ class StreamException: GenericException<String> {
     "Stream error: \(param ?? "Unknown")"
   }
 }
+
+class ToolTimeoutException: Exception {
+  override var reason: String {
+    "Tool call timed out waiting for JavaScript response"
+  }
+}
+
+class ToolCallException: GenericException<String> {
+  override var reason: String {
+    "Tool call error: \(param ?? "Unknown")"
+  }
+}
+
+class ToolNotFoundException: GenericException<String> {
+  override var reason: String {
+    "No pending tool call found with ID: \(param ?? "Unknown")"
+  }
+}
+
+class ToolNotSupportedException: Exception {
+  override var reason: String {
+    "Tool calling is not supported on this platform"
+  }
+}

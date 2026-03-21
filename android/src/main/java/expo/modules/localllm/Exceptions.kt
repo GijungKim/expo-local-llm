@@ -10,3 +10,6 @@ class SessionInvalidException :
 
 class StreamException(message: String) :
   CodedException("ERR_STREAM", message, null)
+
+class ToolNotSupportedException :
+  CodedException("ERR_TOOL_NOT_SUPPORTED", "Tool calling is not supported on Android yet", null)

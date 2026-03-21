@@ -9,6 +9,18 @@ class SessionConfig : Record {
 
   @Field
   var options: GenerationOptionsRecord? = null
+
+  @Field
+  var tools: List<ToolConfig>? = null
+
+  @Field
+  var toolTimeout: Double? = null
+
+  @Field
+  var responseFormat: String? = null
+
+  @Field
+  var schema: Map<String, Any>? = null
 }
 
 class GenerationOptionsRecord : Record {
@@ -20,4 +32,15 @@ class GenerationOptionsRecord : Record {
 
   @Field
   var topK: Int? = null
+}
+
+class ToolConfig : Record {
+  @Field
+  var name: String = ""
+
+  @Field
+  var description: String = ""
+
+  @Field
+  var parameters: Map<String, Any> = emptyMap()
 }
