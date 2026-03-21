@@ -84,7 +84,8 @@ export function useLocalLLM(
         })
       );
       subs.push(
-        session.addListener("streamComplete", (_event: StreamCompleteEvent) => {
+        session.addListener("streamComplete", (event: StreamCompleteEvent) => {
+          setStreamedText(event.text);
           setIsGenerating(false);
         })
       );

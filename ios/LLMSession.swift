@@ -35,18 +35,20 @@ class LLMSession: SharedObject {
 
     let weakSelf = self
     streamTask = Task {
-      var accumulated = ""
+      var lastContent = ""
       do {
         let stream = FoundationModelBridge.stream(session: session, prompt: prompt)
-        for try await token in stream {
-          accumulated += token
+        for try await content in stream {
+          // content is already the full accumulated text from Foundation Models
+          let newToken = String(content.dropFirst(lastContent.count))
+          lastContent = content
           weakSelf.emit(event: "token", arguments: [
-            "token": token,
-            "accumulated": accumulated
+            "token": newToken,
+            "accumulated": content
           ])
         }
         weakSelf.emit(event: "streamComplete", arguments: [
-          "text": accumulated
+          "text": lastContent
         ])
       } catch {
         if Task.isCancelled { return }

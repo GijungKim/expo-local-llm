@@ -1,6 +1,6 @@
 {
   "name": "expo-local-llm",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Expo module for on-device LLM inference via Apple Foundation Models (iOS) and Gemini Nano (Android)",
   "main": "build/index.js",
   "types": "build/index.d.ts",

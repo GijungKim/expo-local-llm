@@ -7,7 +7,7 @@ enum FoundationModelBridge {
     switch availability {
     case .available:
       return .available
-    case .notAvailable(let reason):
+    case .unavailable(let reason):
       switch reason {
       case .deviceNotEligible:
         return .notEligible
