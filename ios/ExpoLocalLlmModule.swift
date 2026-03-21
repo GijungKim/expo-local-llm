@@ -36,7 +36,6 @@ public class ExpoLocalLlmModule: Module {
         session.cancelStream()
       }
 
-      Events("token", "streamComplete", "streamError")
     }
 
     OnAppEntersForeground {

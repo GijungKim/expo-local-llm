@@ -47,7 +47,6 @@ class ExpoLocalLlmModule : Module() {
         session.cancelStream()
       }
 
-      Events("token", "streamComplete", "streamError")
     }
 
     OnActivityDestroys {
