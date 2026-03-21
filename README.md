@@ -6,7 +6,7 @@ Expo module for on-device LLM inference. Wraps Apple Foundation Models (iOS 26+)
 
 | Platform | Requirement |
 |----------|-------------|
-| iOS | iOS 26+ with Apple Intelligence enabled. Loads on iOS 16+ without crashing (returns `notEligible`). |
+| iOS | iOS 26+ with Apple Intelligence enabled. Loads on iOS 16+ without crashing (returns `notEligible`). Host project must target iOS 16.0+. |
 | Android | Device with Gemini Nano support (Pixel 8+, Galaxy S25+). Model may require download. |
 
 ## Installation
@@ -81,7 +81,8 @@ function Chat() {
 | `downloadProgress` | `number \| null` | Download progress 0-1 (Android only) |
 | `error` | `string \| null` | Last error message |
 | `respond` | `(prompt: string) => Promise<string>` | Non-streaming generation. `undefined` when unavailable. |
-| `streamResponse` | `(prompt: string) => Promise<void>` | Streaming generation (updates `streamedText`). `undefined` when unavailable. |
+| `session` | `LLMSession \| null` | The native session object. `null` when unavailable. |
+| `streamResponse` | `(prompt: string) => Promise<void>` | Streaming generation (updates `streamedText`). `undefined` when model not `available`. |
 | `cancelStream` | `() => Promise<void>` | Cancel active stream. `undefined` when unavailable. |
 | `downloadModel` | `() => Promise<void>` | Trigger model download (Android). `undefined` when unavailable. |
 
@@ -101,8 +102,10 @@ function Chat() {
 
 ## Known Limitations
 
-- **v0.1.0**: Only one active stream at a time. Events are not scoped to session ID.
-- **Android**: Gemini Nano SDK is in beta. API surface may change.
+- Only one active stream at a time. Events are not scoped to session ID.
+- **Android**: Gemini Nano SDK is in beta. API surface may change — not yet validated on device.
+- **iOS**: Apple's Foundation Model may refuse certain categories of prompts (e.g. personal health data interpretation) due to built-in safety guardrails.
+- Methods (`respond`, `streamResponse`, `cancelStream`) are only defined when `availability === 'available'`.
 - No tool calling or structured output yet.
 
 ## License
