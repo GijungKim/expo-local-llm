@@ -58,6 +58,55 @@ function Chat() {
 }
 ```
 
+### Tool Calling (iOS 26+)
+
+```tsx
+import { useLocalLLM } from 'expo-local-llm';
+
+function WeatherChat() {
+  const { streamResponse, streamedText, activeToolCalls, error } = useLocalLLM({
+    instructions: 'You are a helpful weather assistant.',
+    tools: [
+      {
+        name: 'getWeather',
+        description: 'Get the current weather for a city',
+        parameters: {
+          city: { type: 'string', description: 'The city name' },
+        },
+        handler: async (args) => {
+          const res = await fetch(`https://api.example.com/weather?city=${args.city}`);
+          return JSON.stringify(await res.json());
+        },
+      },
+    ],
+  });
+
+  return (
+    <View>
+      {activeToolCalls.length > 0 && (
+        <Text>Using {activeToolCalls.map((c) => c.toolName).join(', ')}...</Text>
+      )}
+      <Text>{streamedText}</Text>
+    </View>
+  );
+}
+```
+
+### Structured Output
+
+```tsx
+const { respond } = useLocalLLM({
+  responseFormat: 'json',
+  schema: {
+    name: { type: 'string', description: 'Recipe name' },
+    ingredients: { type: 'array', description: 'List of ingredients' },
+    steps: { type: 'array', description: 'Cooking steps' },
+  },
+});
+
+const recipe = JSON.parse(await respond('Give me a pasta recipe'));
+```
+
 ## API
 
 ### `useLocalLLM(options?)`
@@ -70,6 +119,10 @@ function Chat() {
 | `options.temperature` | `number` | Sampling temperature |
 | `options.maxTokens` | `number` | Max output tokens (capped at 256 on Android) |
 | `options.topK` | `number` | Top-K sampling |
+| `tools` | `ToolDefinition[]` | Tools the model can invoke (iOS 26+ only) |
+| `toolTimeout` | `number` | Seconds before an unresolved tool call times out (default 30) |
+| `responseFormat` | `"text" \| "json"` | Set to `"json"` for structured JSON output |
+| `schema` | `Record<string, any>` | JSON schema for structured output (used with `responseFormat: "json"`) |
 
 #### Returns
 
@@ -80,6 +133,7 @@ function Chat() {
 | `streamedText` | `string` | Accumulated text from current stream |
 | `downloadProgress` | `number \| null` | Download progress 0-1 (Android only) |
 | `error` | `string \| null` | Last error message |
+| `activeToolCalls` | `ActiveToolCall[]` | In-flight tool calls (`{ callId, toolName }`) |
 | `respond` | `(prompt: string) => Promise<string>` | Non-streaming generation. `undefined` when unavailable. |
 | `session` | `LLMSession \| null` | The native session object. `null` when unavailable. |
 | `streamResponse` | `(prompt: string) => Promise<void>` | Streaming generation (updates `streamedText`). `undefined` when model not `available`. |
@@ -106,7 +160,36 @@ function Chat() {
 - **Android**: Gemini Nano SDK is in beta. API surface may change — not yet validated on device.
 - **iOS**: Apple's Foundation Model may refuse certain categories of prompts (e.g. personal health data interpretation) due to built-in safety guardrails.
 - Methods (`respond`, `streamResponse`, `cancelStream`) are only defined when `availability === 'available'`.
-- No tool calling or structured output yet.
+- Tool calling is iOS 26+ only. Android will throw at session creation if tools are passed.
+- Structured output uses instruction-based JSON guidance, not Apple's constrained decoding.
+
+## How is this different from @callstack/ai?
+
+[@callstack/ai](https://github.com/callstackincubator/ai) is a full-featured
+framework that supports multiple on-device backends (Apple Foundation Models,
+Llama/GGUF, MLC) with Vercel AI SDK integration, generative UI, and DevTools.
+
+`expo-local-llm` takes a different approach:
+
+| | `expo-local-llm` | `@callstack/ai` |
+|---|---|---|
+| **Philosophy** | Thin bridge to the OS-provided model | Multi-backend AI framework |
+| **iOS model** | Apple Foundation Models (system-provided) | Apple Foundation Models, Llama, MLC |
+| **Android model** | Gemini Nano (system-provided) | No Android support |
+| **Model management** | None — the OS handles it | You configure/download models |
+| **Bundle size impact** | Near zero | Depends on backend + model weights |
+| **Tool calling** | Yes (iOS 26+) | Yes |
+| **Structured output** | Yes (instruction-based) | Yes |
+| **Expo native module** | Yes — `expo install` and go | Bare React Native setup |
+| **Dependencies** | None | Vercel AI SDK, Jotai, backend runtimes |
+
+**Choose `expo-local-llm` if** you want the simplest path to on-device LLM in
+an Expo app and are happy using whatever model the OS provides. There's nothing
+to configure, no weights to bundle, and it works on both iOS and Android.
+
+**Choose `@callstack/ai` if** you need to pick specific models (Llama 3.2,
+Phi-3, Mistral), want Vercel AI SDK compatibility, or need the generative UI
+and DevTools ecosystem.
 
 ## License
 
