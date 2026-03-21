@@ -163,7 +163,7 @@ const recipe = JSON.parse(await respond('Give me a pasta recipe'));
 - Tool calling is iOS 26+ only. Android will throw at session creation if tools are passed.
 - Structured output uses instruction-based JSON guidance, not Apple's constrained decoding.
 
-## How is this different from @callstack/ai?
+## How is this different from @callstack/ai? (as of March 2026)
 
 [@callstack/ai](https://github.com/callstackincubator/ai) is a full-featured
 framework that supports multiple on-device backends (Apple Foundation Models,
