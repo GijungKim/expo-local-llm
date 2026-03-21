@@ -2,49 +2,56 @@ package expo.modules.localllm
 
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
-import java.net.URL
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class ExpoLocalLlmModule : Module() {
-  // Each module class must implement the definition function. The definition consists of components
-  // that describes the module's functionality and behavior.
-  // See https://docs.expo.dev/modules/module-api for more details about available components.
+  private val scope = CoroutineScope(Dispatchers.Main)
+
   override fun definition() = ModuleDefinition {
-    // Sets the name of the module that JavaScript code will use to refer to the module. Takes a string as an argument.
-    // Can be inferred from module's class name, but it's recommended to set it explicitly for clarity.
-    // The module will be accessible from `requireNativeModule('ExpoLocalLlm')` in JavaScript.
     Name("ExpoLocalLlm")
 
-    // Defines constant property on the module.
-    Constant("PI") {
-      Math.PI
+    Events("downloadProgress", "availabilityChange")
+
+    Function("getAvailability") {
+      LLMSession.checkAvailability(appContext.reactContext!!).value
     }
 
-    // Defines event names that the module can send to JavaScript.
-    Events("onChange")
-
-    // Defines a JavaScript synchronous function that runs the native code on the JavaScript thread.
-    Function("hello") {
-      "Hello world! 👋"
-    }
-
-    // Defines a JavaScript function that always returns a Promise and whose native code
-    // is by default dispatched on the different thread than the JavaScript runtime runs on.
-    AsyncFunction("setValueAsync") { value: String ->
-      // Send an event to JavaScript.
-      sendEvent("onChange", mapOf(
-        "value" to value
-      ))
-    }
-
-    // Enables the module to be used as a native view. Definition components that are accepted as part of
-    // the view definition: Prop, Events.
-    View(ExpoLocalLlmView::class) {
-      // Defines a setter for the `url` prop.
-      Prop("url") { view: ExpoLocalLlmView, url: URL ->
-        view.webView.loadUrl(url.toString())
+    AsyncFunction("downloadModel") Coroutine { ->
+      val context = appContext.reactContext!!
+      // Immediately signal downloading state so UI can disable the download button
+      sendEvent("availabilityChange", mapOf("availability" to ModelAvailability.downloading.value))
+      LLMSession.downloadModel(context) { progress ->
+        sendEvent("downloadProgress", mapOf("progress" to progress))
       }
-      // Defines an event that the view can send to JavaScript.
-      Events("onLoad")
+      // Re-check availability after download completes
+      val newAvailability = LLMSession.checkAvailability(context)
+      sendEvent("availabilityChange", mapOf("availability" to newAvailability.value))
+    }
+
+    Class(LLMSession::class) {
+      Constructor { config: SessionConfig ->
+        LLMSession(appContext.reactContext!!, config)
+      }
+
+      AsyncFunction("respond") Coroutine { session: LLMSession, prompt: String ->
+        session.respond(prompt)
+      }
+
+      AsyncFunction("streamResponse") { session: LLMSession, prompt: String ->
+        session.startStream(prompt)
+      }
+
+      AsyncFunction("cancelStream") { session: LLMSession ->
+        session.cancelStream()
+      }
+
+      Events("token", "streamComplete", "streamError")
+    }
+
+    OnActivityDestroys {
+      // Cleanup handled by SharedObject.deallocate() on each LLMSession
     }
   }
 }

@@ -1,9 +1,16 @@
 {
   "name": "expo-local-llm",
   "version": "0.1.0",
-  "description": "My new module",
+  "description": "Expo module for on-device LLM inference via Apple Foundation Models (iOS) and Gemini Nano (Android)",
   "main": "build/index.js",
   "types": "build/index.d.ts",
+  "files": [
+    "build",
+    "src",
+    "ios",
+    "android",
+    "expo-module.config.json"
+  ],
   "scripts": {
     "build": "expo-module build",
     "clean": "expo-module clean",
@@ -19,15 +26,22 @@
     "react-native",
     "expo",
     "expo-local-llm",
-    "ExpoLocalLlm"
+    "llm",
+    "on-device",
+    "apple-intelligence",
+    "gemini-nano",
+    "foundation-models"
   ],
-  "repository": "",
-  "bugs": {
-    "url": "/issues"
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GijungKim/expo-local-llm"
   },
-  "author": "GijungKim <tonykim970@gmail.com> ()",
+  "bugs": {
+    "url": "https://github.com/GijungKim/expo-local-llm/issues"
+  },
+  "author": "GijungKim <tonykim970@gmail.com>",
   "license": "MIT",
-  "homepage": "#readme",
+  "homepage": "https://github.com/GijungKim/expo-local-llm#readme",
   "dependencies": {},
   "devDependencies": {
     "@types/react": "~19.1.1",
@@ -35,9 +49,13 @@
     "expo": "^55.0.8",
     "react-native": "0.82.1"
   },
+  "jest": {
+    "preset": "jest-expo/node"
+  },
   "peerDependencies": {
-    "expo": "*",
-    "react": "*",
-    "react-native": "*"
+    "expo": ">=52.0.0",
+    "expo-modules-core": ">=2.0.0",
+    "react": ">=18.0.0",
+    "react-native": ">=0.76.0"
   }
 }

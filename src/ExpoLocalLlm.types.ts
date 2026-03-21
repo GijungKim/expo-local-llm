@@ -1,19 +1,47 @@
-import type { StyleProp, ViewStyle } from 'react-native';
+export type ModelAvailability =
+  | "available"
+  | "notEnabled"
+  | "notReady"
+  | "notEligible"
+  | "downloadRequired"
+  | "downloading"
+  | "unknown";
 
-export type OnLoadEventPayload = {
-  url: string;
+export type GenerationOptions = {
+  temperature?: number;
+  maxTokens?: number;
+  topK?: number;
+};
+
+export type SessionConfig = {
+  instructions?: string;
+  options?: GenerationOptions;
+};
+
+export type TokenEvent = {
+  token: string;
+  accumulated: string;
+};
+
+export type StreamCompleteEvent = {
+  text: string;
+};
+
+export type StreamErrorEvent = {
+  error: string;
+};
+
+export type DownloadProgress = {
+  progress: number;
+};
+
+export type LLMSessionEvents = {
+  token: (event: TokenEvent) => void;
+  streamComplete: (event: StreamCompleteEvent) => void;
+  streamError: (event: StreamErrorEvent) => void;
 };
 
 export type ExpoLocalLlmModuleEvents = {
-  onChange: (params: ChangeEventPayload) => void;
-};
-
-export type ChangeEventPayload = {
-  value: string;
-};
-
-export type ExpoLocalLlmViewProps = {
-  url: string;
-  onLoad: (event: { nativeEvent: OnLoadEventPayload }) => void;
-  style?: StyleProp<ViewStyle>;
+  downloadProgress: (event: DownloadProgress) => void;
+  availabilityChange: (event: { availability: ModelAvailability }) => void;
 };

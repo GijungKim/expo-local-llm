@@ -1,12 +1,19 @@
-import { NativeModule, requireNativeModule } from 'expo';
+import { NativeModule, requireNativeModule } from "expo-modules-core";
 
-import { ExpoLocalLlmModuleEvents } from './ExpoLocalLlm.types';
+import type { ExpoLocalLlmModuleEvents } from "./ExpoLocalLlm.types";
 
-declare class ExpoLocalLlmModule extends NativeModule<ExpoLocalLlmModuleEvents> {
-  PI: number;
-  hello(): string;
-  setValueAsync(value: string): Promise<void>;
+declare class ExpoLocalLlmModuleType extends NativeModule<ExpoLocalLlmModuleEvents> {
+  getAvailability(): string;
+  downloadModel(): Promise<void>;
+  LLMSession: any;
 }
 
-// This call loads the native module object from the JSI.
-export default requireNativeModule<ExpoLocalLlmModule>('ExpoLocalLlm');
+let nativeModule: ExpoLocalLlmModuleType | null;
+
+try {
+  nativeModule = requireNativeModule<ExpoLocalLlmModuleType>("ExpoLocalLlm");
+} catch {
+  nativeModule = null;
+}
+
+export default nativeModule;
