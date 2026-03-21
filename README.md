@@ -163,6 +163,28 @@ const recipe = JSON.parse(await respond('Give me a pasta recipe'));
 - Tool calling is iOS 26+ only. Android will throw at session creation if tools are passed.
 - Structured output uses instruction-based JSON guidance, not Apple's constrained decoding.
 
+## Why an Expo module?
+
+This is built as an [Expo Module](https://docs.expo.dev/modules/overview/), not
+a bare React Native library. Here's why:
+
+- **`expo install` and go** — no manual Xcode/Gradle linking, no `pod install`
+  surprises. Works with `npx expo prebuild` and managed workflow out of the box.
+- **SharedObject lifecycle** — `LLMSession` extends Expo's `SharedObject`, which
+  handles native memory management, event subscriptions, and cleanup
+  automatically when the JS object is garbage collected. In bare RN you'd wire
+  this yourself with `NativeEventEmitter` and manual release calls.
+- **Class DSL** — the native module exposes `LLMSession` as a first-class JS
+  object with instance methods (`session.respond()`, `session.streamResponse()`)
+  rather than flat module-level functions with session IDs. This is an Expo
+  Modules API feature that doesn't exist in the classic RN bridge.
+- **Cross-platform parity** — Expo's Kotlin DSL mirrors the Swift DSL, so the
+  iOS and Android modules have the same structure. Adding Android tool calling
+  later means implementing the same interface, not building a separate bridge.
+
+If you're on bare React Native without Expo, this module won't work — you'd need
+to add `expo-modules-core` as a dependency or use a different library.
+
 ## How is this different from @callstack/ai? (as of March 2026)
 
 [@callstack/ai](https://github.com/callstackincubator/ai) is a full-featured
