@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android", "web"],
+  "apple": {
+    "modules": ["ExpoLocalLlmModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.localllm.ExpoLocalLlmModule"]
+  }
+}
