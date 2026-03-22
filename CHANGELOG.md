@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1
+
+- Fix iOS build error: remove `Events()` from `Class()` block — not supported in ExpoModulesCore
+  (SharedObject events are emitted via `session.emit()` and don't need a declaration)
+
 ## 0.2.0
 
 - **Tool calling support (iOS 26+)** — register tools with JSON schemas via `useLocalLLM({ tools })`;

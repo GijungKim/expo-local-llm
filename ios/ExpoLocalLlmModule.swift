@@ -52,8 +52,6 @@ public class ExpoLocalLlmModule: Module {
       Function("rejectToolCall") { (session: LLMSession, callId: String, error: String) in
         try session.rejectToolCall(callId: callId, error: error)
       }
-
-      Events("token", "streamComplete", "streamError", "toolCall")
     }
 
     OnAppEntersForeground {
