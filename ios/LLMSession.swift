@@ -113,7 +113,7 @@ class LLMSession: SharedObject {
     // Cancel any pending tool calls from the old session
     store.cancelAll()
 
-    var tools: [any Tool] = []
+    var dynamicTools: [DynamicTool] = []
     registeredTools.removeAll()
 
     for config in toolConfigs {
@@ -138,12 +138,12 @@ class LLMSession: SharedObject {
         ])
       }
       registeredTools[config.name] = tool
-      tools.append(tool)
+      dynamicTools.append(tool)
     }
 
     nativeSession = FoundationModelBridge.createSession(
       instructions: sessionInstructions,
-      tools: tools
+      dynamicTools: dynamicTools
     )
   }
 

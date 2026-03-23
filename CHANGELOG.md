@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.2
+
+- Fix iOS build: `Tool` type from `FoundationModels` was referenced in `LLMSession.swift` which doesn't
+  import that framework. Moved to `[DynamicTool]` array (our own type) and let `FoundationModelBridge`
+  handle the `[any Tool]` conversion internally.
+
 ## 0.2.1
 
 - Fix iOS build error: remove `Events()` from `Class()` block — not supported in ExpoModulesCore

@@ -23,7 +23,8 @@ enum FoundationModelBridge {
     }
   }
 
-  static func createSession(instructions: String?, tools: [any Tool] = []) -> LanguageModelSession {
+  static func createSession(instructions: String?, dynamicTools: [DynamicTool] = []) -> LanguageModelSession {
+    let tools: [any Tool] = dynamicTools
     if tools.isEmpty {
       if let instructions {
         return LanguageModelSession(instructions: instructions)
