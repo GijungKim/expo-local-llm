@@ -213,6 +213,13 @@ to configure, no weights to bundle, and it works on both iOS and Android.
 Phi-3, Mistral), want Vercel AI SDK compatibility, or need the generative UI
 and DevTools ecosystem.
 
+## Built with expo-local-llm
+
+- [PulseID](https://apps.apple.com/us/app/pulseid-heart-rate-camera/id6754331991) — Heart rate camera
+- [Teamfit Tactics](https://apps.apple.com/us/app/teamfit-tactics-tft-fitness/id6757195493) — TFT fitness
+
+*Using this library? Open a PR to add your app.*
+
 ## License
 
 MIT
