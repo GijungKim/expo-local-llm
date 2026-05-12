@@ -13,8 +13,36 @@ Expo module for on-device LLM inference. Wraps Apple Foundation Models (iOS 26+)
 
 ```bash
 npm install expo-local-llm
-npx expo prebuild
 ```
+
+This module requires **iOS 16.0+** as a compile target. The default Expo template targets iOS 15.1, so you'll need to raise it via [`expo-build-properties`](https://docs.expo.dev/versions/latest/sdk/build-properties/):
+
+```bash
+npx expo install expo-build-properties
+```
+
+In `app.json`, add the plugin with the deployment target:
+
+```json
+{
+  "expo": {
+    "plugins": [
+      [
+        "expo-build-properties",
+        { "ios": { "deploymentTarget": "16.0" } }
+      ]
+    ]
+  }
+}
+```
+
+Then prebuild:
+
+```bash
+npx expo prebuild --clean
+```
+
+> Without `expo-build-properties`, you'll hit `compiling for iOS 15.1, but module 'ExpoLocalLlm' has a minimum deployment target of iOS 16.0` at build time. (Apple Intelligence itself still requires iOS 26+ at runtime — the 16.0 floor is just for compilation; the module returns `notEligible` on iOS 16–25.)
 
 ## Usage
 
@@ -241,33 +269,38 @@ a bare React Native library. Here's why:
 If you're on bare React Native without Expo, this module won't work — you'd need
 to add `expo-modules-core` as a dependency or use a different library.
 
-## How is this different from @callstack/ai? (as of March 2026)
+## How is this different from React Native AI? (as of May 2026)
 
-[@callstack/ai](https://github.com/callstackincubator/ai) is a full-featured
-framework that supports multiple on-device backends (Apple Foundation Models,
-Llama/GGUF, MLC) with Vercel AI SDK integration, generative UI, and DevTools.
+[React Native AI](https://github.com/callstackincubator/ai) (formerly `@callstack/ai`)
+is a Vercel AI SDK-compatible collection of on-device AI primitives, modularized
+into per-backend packages: `@react-native-ai/apple`, `@react-native-ai/llama`,
+`@react-native-ai/mlc`. It covers text generation, embeddings, transcription, and
+speech synthesis.
 
-`expo-local-llm` takes a different approach:
+`expo-local-llm` takes a narrower approach:
 
-| | `expo-local-llm` | `@callstack/ai` |
+| | `expo-local-llm` | React Native AI |
 |---|---|---|
-| **Philosophy** | Thin bridge to the OS-provided model | Multi-backend AI framework |
-| **iOS model** | Apple Foundation Models (system-provided) | Apple Foundation Models, Llama, MLC |
-| **Android model** | Gemini Nano (system-provided) | No Android support |
-| **Model management** | None — the OS handles it | You configure/download models |
-| **Bundle size impact** | Near zero | Depends on backend + model weights |
-| **Tool calling** | Yes (iOS 26+) | Yes |
-| **Structured output** | Yes — constrained decoding on iOS 26+ | Yes |
-| **Expo native module** | Yes — `expo install` and go | Bare React Native setup |
-| **Dependencies** | None | Vercel AI SDK, Jotai, backend runtimes |
+| **Surface** | React hook (`useLocalLLM`) and a native session object | Vercel AI SDK provider (`generateText`, `streamText`, `embed`, `transcribe`, `speech`) |
+| **iOS model** | Apple Foundation Models (system-provided) | Apple Foundation Models, Llama (via llama.rn), MLC LLM |
+| **Android model** | Gemini Nano (system-provided) | Llama, MLC (no built-in OS model) |
+| **Capabilities** | Text generation, tool calling, constrained JSON output | Text, embeddings, transcription, speech synthesis |
+| **Model management** | None — the OS handles it | Built-in for Apple; download/prepare for Llama/MLC |
+| **Bundle size impact** | Near zero | Depends on which provider you install + model weights |
+| **DevTools** | None | AI SDK Profiler via Rozenite (OpenTelemetry spans) |
+| **Install path** | One `expo install`, autolinks | Per-package install (Apple provider autolinks; Llama/MLC need extra setup) |
+| **Dependencies** | None | Vercel AI SDK (v6) and per-provider runtimes |
 
 **Choose `expo-local-llm` if** you want the simplest path to on-device LLM in
-an Expo app and are happy using whatever model the OS provides. There's nothing
-to configure, no weights to bundle, and it works on both iOS and Android.
+an Expo app and are happy using whatever model the OS provides (Apple Foundation
+Models on iOS, Gemini Nano on Android). There's nothing to configure, no weights
+to bundle, and it works on both platforms.
 
-**Choose `@callstack/ai` if** you need to pick specific models (Llama 3.2,
-Phi-3, Mistral), want Vercel AI SDK compatibility, or need the generative UI
-and DevTools ecosystem.
+**Choose React Native AI if** you need any of:
+- Vercel AI SDK compatibility (drop-in replacement for cloud-LLM apps)
+- Capabilities beyond text generation (embeddings, transcription, speech synthesis)
+- Specific models (Llama 3.2, Phi-3, Mistral, Qwen) on either iOS or Android
+- AI SDK Profiler DevTools for tracing
 
 ## Built with expo-local-llm
 
