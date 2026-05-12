@@ -142,6 +142,23 @@ await streamResponse('Give me a pasta recipe');
 // streamedObject updates as the model fills in fields
 ```
 
+#### Schema validation
+
+`createLLMSession` validates the schema before crossing to native and throws `SchemaInvalidError`
+with per-field paths if anything is malformed (missing `items`, `enum` on the wrong type, unknown
+`type`, etc.). You can also call `validateSchema()` directly when building schemas at runtime:
+
+```ts
+import { validateSchema } from 'expo-local-llm';
+
+const result = validateSchema(mySchema);
+if (!result.ok) {
+  for (const err of result.errors) {
+    console.warn(`${err.path}: ${err.message}`);
+  }
+}
+```
+
 ## API
 
 ### `useLocalLLM(options?)`

@@ -1,4 +1,10 @@
 export { useLocalLLM } from "./useLocalLLM";
 export { LLMSession, createLLMSession } from "./LLMSession";
 export { default as ExpoLocalLlmModule } from "./ExpoLocalLlmModule";
+export {
+  validateSchema,
+  SchemaInvalidError,
+  type SchemaValidationError,
+  type SchemaValidationResult,
+} from "./validateSchema";
 export * from "./ExpoLocalLlm.types";

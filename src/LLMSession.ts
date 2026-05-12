@@ -6,6 +6,7 @@ import type {
   ToolConfig,
 } from "./ExpoLocalLlm.types";
 import ExpoLocalLlmModule from "./ExpoLocalLlmModule";
+import { validateSchema, SchemaInvalidError } from "./validateSchema";
 
 export class LLMSession extends SharedObject<LLMSessionEvents> {
   // Methods are implemented natively via the Class() DSL.
@@ -22,6 +23,13 @@ export class LLMSession extends SharedObject<LLMSessionEvents> {
 export function createLLMSession(config: SessionConfig = {}): LLMSession {
   if (!ExpoLocalLlmModule) {
     throw new UnavailabilityError("ExpoLocalLlm", "createLLMSession");
+  }
+
+  if (config.schema) {
+    const result = validateSchema(config.schema);
+    if (!result.ok) {
+      throw new SchemaInvalidError(result.errors);
+    }
   }
 
   // Strip handler functions before passing to native — native doesn't need them

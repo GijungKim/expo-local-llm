@@ -13,6 +13,10 @@
   `object` (with `properties`). Replaces the prior `Record<string, any>`.
 - **`includeSchemaInPrompt` option** (iOS 26+) — pass `false` to omit the schema definition from the
   prompt when you've front-loaded few-shot examples. Defaults to `true`.
+- **`validateSchema()` export** — pure TS validator runs inside `createLLMSession` before crossing
+  to native. Malformed schemas now throw `SchemaInvalidError` with per-field paths and messages
+  instead of opaque native failures. Also exported for callers building schemas at runtime (Zod
+  export, form builders, JSON config).
 
 **Breaking (TS only):** the schema type narrowed from `Record<string, any>` to a structural union.
 Existing schemas using `{ type: 'string' | 'number' | 'boolean' }` or `{ type: 'array' }` with `items`
