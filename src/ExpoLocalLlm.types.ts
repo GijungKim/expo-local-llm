@@ -51,13 +51,26 @@ export type ActiveToolCall = {
 
 export type ResponseFormat = "text" | "json";
 
+export type SchemaField =
+  | { type: "string"; description?: string; enum?: string[] }
+  | { type: "number" | "integer" | "boolean"; description?: string }
+  | { type: "array"; description?: string; items: SchemaField }
+  | {
+      type: "object";
+      description?: string;
+      properties: Record<string, SchemaField>;
+    };
+
+export type Schema = Record<string, SchemaField>;
+
 export type SessionConfig = {
   instructions?: string;
   options?: GenerationOptions;
   tools?: ToolDefinition[];
   toolTimeout?: number;
   responseFormat?: ResponseFormat;
-  schema?: Record<string, any>;
+  schema?: Schema;
+  includeSchemaInPrompt?: boolean;
 };
 
 export type TokenEvent = {
@@ -67,6 +80,11 @@ export type TokenEvent = {
 
 export type StreamCompleteEvent = {
   text: string;
+};
+
+export type PartialEvent = {
+  json: string;
+  complete: boolean;
 };
 
 export type StreamErrorEvent = {
@@ -79,6 +97,7 @@ export type DownloadProgress = {
 
 export type LLMSessionEvents = {
   token: (event: TokenEvent) => void;
+  partial: (event: PartialEvent) => void;
   streamComplete: (event: StreamCompleteEvent) => void;
   streamError: (event: StreamErrorEvent) => void;
   toolCall: (event: ToolCallEvent) => void;

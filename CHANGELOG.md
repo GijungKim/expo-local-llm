@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.0
+
+- **Constrained decoding for structured output (iOS 26+)** — `responseFormat: "json"` with a `schema`
+  now uses Apple's `DynamicGenerationSchema` / `GenerationSchema` instead of instruction-based JSON
+  guidance. The model is guaranteed to emit a structurally-valid JSON object that matches the schema.
+- **Streaming with structured output** — `streamResponse()` now emits `partial` events when a schema
+  is set. The hook exposes `streamedJSON` (current partial as JSON string) and `streamedObject`
+  (parsed JS value) parallel to `streamedText`.
+- **Richer `Schema` type** — schema fields are now a discriminated union supporting `string`
+  (with optional `enum`), `number`, `integer`, `boolean`, `array` (with required `items`), and
+  `object` (with `properties`). Replaces the prior `Record<string, any>`.
+- **`includeSchemaInPrompt` option** (iOS 26+) — pass `false` to omit the schema definition from the
+  prompt when you've front-loaded few-shot examples. Defaults to `true`.
+
+**Breaking (TS only):** the schema type narrowed from `Record<string, any>` to a structural union.
+Existing schemas using `{ type: 'string' | 'number' | 'boolean' }` or `{ type: 'array' }` with `items`
+keep working; loosely-typed schemas may need updates. No runtime breaking changes.
+
+Validated on iPhone with iOS 26.3 (Apple Intelligence enabled). See `docs/structured-output.png`.
+
 ## 0.2.2
 
 - Fix iOS build: `Tool` type from `FoundationModels` was referenced in `LLMSession.swift` which doesn't

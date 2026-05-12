@@ -1,8 +1,30 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, TextInput, TouchableOpacity, View, ScrollView, ActivityIndicator } from 'react-native';
-import { useLocalLLM } from 'expo-local-llm';
+import { useLocalLLM, type Schema } from 'expo-local-llm';
+
+const recipeSchema: Schema = {
+  name: { type: 'string', description: 'Recipe name' },
+  ingredients: {
+    type: 'array',
+    items: { type: 'string' },
+    description: 'List of ingredients',
+  },
+  steps: {
+    type: 'array',
+    items: { type: 'string' },
+    description: 'Cooking steps in order',
+  },
+  difficulty: {
+    type: 'string',
+    enum: ['easy', 'medium', 'hard'],
+    description: 'How hard the recipe is to cook',
+  },
+};
+
+type Mode = 'chat' | 'json';
 
 export default function App() {
+  const [mode, setMode] = useState<Mode>('chat');
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<{ role: 'user' | 'assistant'; text: string }[]>([]);
 
@@ -10,39 +32,52 @@ export default function App() {
     availability,
     isGenerating,
     streamedText,
+    streamedJSON,
+    streamedObject,
     error,
-    respond,
     streamResponse,
     cancelStream,
     downloadModel,
     downloadProgress,
-  } = useLocalLLM({
-    instructions: 'You are a helpful health assistant. Keep responses concise.',
-  });
+  } = useLocalLLM(
+    mode === 'json'
+      ? {
+          instructions: 'You generate recipes as structured JSON.',
+          responseFormat: 'json',
+          schema: recipeSchema,
+        }
+      : {
+          instructions: 'You are a helpful health assistant. Keep responses concise.',
+        }
+  );
 
   const handleSend = async () => {
     if (!input.trim() || !streamResponse) return;
     const prompt = input.trim();
     setInput('');
-    setMessages((prev) => [...prev, { role: 'user', text: prompt }]);
-
+    if (mode === 'chat') {
+      setMessages((prev) => [...prev, { role: 'user', text: prompt }]);
+    }
     try {
       await streamResponse(prompt);
     } catch {}
   };
 
-  const handleComplete = () => {
-    if (streamedText) {
-      setMessages((prev) => [...prev, { role: 'assistant', text: streamedText }]);
-    }
-  };
-
-  // When streaming completes, add message
   React.useEffect(() => {
+    if (mode !== 'chat') return;
     if (!isGenerating && streamedText) {
-      handleComplete();
+      setMessages((prev) => {
+        if (prev[prev.length - 1]?.role === 'assistant' && prev[prev.length - 1]?.text === streamedText) {
+          return prev;
+        }
+        return [...prev, { role: 'assistant', text: streamedText }];
+      });
     }
-  }, [isGenerating]);
+  }, [isGenerating, streamedText, mode]);
+
+  const jsonPretty = streamedObject
+    ? JSON.stringify(streamedObject, null, 2)
+    : streamedJSON || '';
 
   return (
     <View style={styles.container}>
@@ -57,28 +92,59 @@ export default function App() {
             </Text>
           </TouchableOpacity>
         )}
+        <View style={styles.tabRow}>
+          <TouchableOpacity
+            style={[styles.tab, mode === 'chat' && styles.tabActive]}
+            onPress={() => setMode('chat')}
+            disabled={isGenerating}
+          >
+            <Text style={[styles.tabText, mode === 'chat' && styles.tabTextActive]}>Chat</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, mode === 'json' && styles.tabActive]}
+            onPress={() => setMode('json')}
+            disabled={isGenerating}
+          >
+            <Text style={[styles.tabText, mode === 'json' && styles.tabTextActive]}>JSON (recipe)</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
-      <ScrollView style={styles.messages} contentContainerStyle={styles.messagesContent}>
-        {messages.map((msg, i) => (
-          <View key={i} style={[styles.bubble, msg.role === 'user' ? styles.userBubble : styles.assistantBubble]}>
-            <Text style={msg.role === 'user' ? styles.userText : styles.assistantText}>{msg.text}</Text>
-          </View>
-        ))}
-        {isGenerating && streamedText ? (
-          <View style={[styles.bubble, styles.assistantBubble]}>
-            <Text style={styles.assistantText}>{streamedText}</Text>
-          </View>
-        ) : null}
-        {isGenerating && !streamedText ? <ActivityIndicator style={styles.loader} /> : null}
-      </ScrollView>
+      {mode === 'chat' ? (
+        <ScrollView style={styles.messages} contentContainerStyle={styles.messagesContent}>
+          {messages.map((msg, i) => (
+            <View key={i} style={[styles.bubble, msg.role === 'user' ? styles.userBubble : styles.assistantBubble]}>
+              <Text style={msg.role === 'user' ? styles.userText : styles.assistantText}>{msg.text}</Text>
+            </View>
+          ))}
+          {isGenerating && streamedText ? (
+            <View style={[styles.bubble, styles.assistantBubble]}>
+              <Text style={styles.assistantText}>{streamedText}</Text>
+            </View>
+          ) : null}
+          {isGenerating && !streamedText ? <ActivityIndicator style={styles.loader} /> : null}
+        </ScrollView>
+      ) : (
+        <ScrollView style={styles.messages} contentContainerStyle={styles.jsonContent}>
+          {!jsonPretty && !isGenerating ? (
+            <Text style={styles.hint}>
+              Try: "Italian dinner", "Quick breakfast", "Vegan dessert"{'\n'}
+              {'\n'}
+              Watch the JSON fill in field-by-field as the model generates.
+            </Text>
+          ) : (
+            <Text style={styles.jsonText}>{jsonPretty}</Text>
+          )}
+          {isGenerating && !jsonPretty ? <ActivityIndicator style={styles.loader} /> : null}
+        </ScrollView>
+      )}
 
       <View style={styles.inputRow}>
         <TextInput
           style={styles.input}
           value={input}
           onChangeText={setInput}
-          placeholder="Ask something..."
+          placeholder={mode === 'json' ? 'What kind of recipe?' : 'Ask something...'}
           editable={!isGenerating}
         />
         {isGenerating ? (
@@ -103,8 +169,16 @@ const styles = StyleSheet.create({
   error: { fontSize: 13, color: '#ff3b30', marginTop: 4 },
   downloadBtn: { marginTop: 8, backgroundColor: '#007aff', borderRadius: 8, paddingVertical: 8, paddingHorizontal: 16, alignSelf: 'flex-start' },
   downloadBtnText: { color: '#fff', fontWeight: '600', fontSize: 14 },
+  tabRow: { flexDirection: 'row', marginTop: 12, gap: 8 },
+  tab: { paddingVertical: 6, paddingHorizontal: 14, borderRadius: 14, backgroundColor: '#f0f0f0' },
+  tabActive: { backgroundColor: '#1c1c1e' },
+  tabText: { fontSize: 13, color: '#666', fontWeight: '600' },
+  tabTextActive: { color: '#fff' },
   messages: { flex: 1 },
   messagesContent: { padding: 16, gap: 8 },
+  jsonContent: { padding: 16 },
+  jsonText: { fontFamily: 'Menlo', fontSize: 13, color: '#1c1c1e' },
+  hint: { fontSize: 14, color: '#888', lineHeight: 20 },
   bubble: { padding: 12, borderRadius: 16, maxWidth: '80%' },
   userBubble: { backgroundColor: '#007aff', alignSelf: 'flex-end' },
   assistantBubble: { backgroundColor: '#fff', alignSelf: 'flex-start' },

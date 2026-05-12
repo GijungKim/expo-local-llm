@@ -3,8 +3,7 @@ import FoundationModels
 @available(iOS 26, *)
 enum FoundationModelBridge {
   static func checkAvailability() -> ModelAvailability {
-    let availability = SystemLanguageModel.default.availability
-    switch availability {
+    switch SystemLanguageModel.default.availability {
     case .available:
       return .available
     case .unavailable(let reason):
@@ -46,6 +45,14 @@ enum FoundationModelBridge {
     return response.content
   }
 
+  static func respond(session: Any, prompt: String, schema: GenerationSchema, includeSchemaInPrompt: Bool) async throws -> String {
+    guard let session = session as? LanguageModelSession else {
+      throw SessionInvalidException()
+    }
+    let response = try await session.respond(to: prompt, schema: schema, includeSchemaInPrompt: includeSchemaInPrompt)
+    return response.content.jsonString
+  }
+
   static func stream(session: Any, prompt: String) -> AsyncThrowingStream<String, Error> {
     guard let session = session as? LanguageModelSession else {
       return AsyncThrowingStream { $0.finish(throwing: SessionInvalidException()) }
@@ -56,6 +63,31 @@ enum FoundationModelBridge {
           let stream = session.streamResponse(to: prompt)
           for try await partial in stream {
             continuation.yield(partial.content)
+          }
+          continuation.finish()
+        } catch {
+          continuation.finish(throwing: error)
+        }
+      }
+    }
+  }
+
+  struct PartialSnapshot {
+    let json: String
+    let complete: Bool
+  }
+
+  static func stream(session: Any, prompt: String, schema: GenerationSchema, includeSchemaInPrompt: Bool) -> AsyncThrowingStream<PartialSnapshot, Error> {
+    guard let session = session as? LanguageModelSession else {
+      return AsyncThrowingStream { $0.finish(throwing: SessionInvalidException()) }
+    }
+    return AsyncThrowingStream { continuation in
+      Task {
+        do {
+          let stream = session.streamResponse(to: prompt, schema: schema, includeSchemaInPrompt: includeSchemaInPrompt)
+          for try await snapshot in stream {
+            let content = snapshot.content
+            continuation.yield(PartialSnapshot(json: content.jsonString, complete: content.isComplete))
           }
           continuation.finish()
         } catch {

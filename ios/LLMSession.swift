@@ -1,5 +1,8 @@
 import ExpoModulesCore
 import Foundation
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
 
 class LLMSession: SharedObject {
   private var nativeSession: Any?
@@ -9,6 +12,8 @@ class LLMSession: SharedObject {
   private var toolConfigs: [ToolConfig] = []
   private var sessionInstructions: String?
   private var toolTimeout: TimeInterval = 30
+  private var generationSchema: Any?  // GenerationSchema (type-erased for availability)
+  private var includeSchemaInPrompt: Bool = true
 
   static func checkAvailability() -> ModelAvailability {
     guard #available(iOS 26, *) else {
@@ -22,25 +27,15 @@ class LLMSession: SharedObject {
       throw NotSupportedException()
     }
 
-    // Build instructions, appending JSON schema guidance if structured output requested
-    var instructions = config.instructions ?? ""
-    if config.responseFormat == "json" {
-      let schemaClause: String
-      if let schema = config.schema,
-         let data = try? JSONSerialization.data(withJSONObject: schema, options: .prettyPrinted),
-         let schemaStr = String(data: data, encoding: .utf8) {
-        schemaClause = "Respond ONLY with a valid JSON object matching this schema:\n\(schemaStr)"
-      } else {
-        schemaClause = "Respond ONLY with a valid JSON object."
-      }
-      if instructions.isEmpty {
-        instructions = schemaClause
-      } else {
-        instructions += "\n\n\(schemaClause)"
-      }
-    }
+    let instructions = config.instructions ?? ""
     sessionInstructions = instructions.isEmpty ? nil : instructions
     toolTimeout = config.toolTimeout ?? 30
+    includeSchemaInPrompt = config.includeSchemaInPrompt ?? true
+
+    // Build a constrained-decoding schema if structured output is requested.
+    if config.responseFormat == "json", let schemaDict = config.schema {
+      generationSchema = try GenerationSchemaBuilder.build(properties: schemaDict)
+    }
 
     if let tools = config.tools, !tools.isEmpty {
       toolConfigs = tools
@@ -153,6 +148,14 @@ class LLMSession: SharedObject {
     guard #available(iOS 26, *), let session = nativeSession else {
       throw NotSupportedException()
     }
+    if let schema = generationSchema as? GenerationSchema {
+      return try await FoundationModelBridge.respond(
+        session: session,
+        prompt: prompt,
+        schema: schema,
+        includeSchemaInPrompt: includeSchemaInPrompt
+      )
+    }
     return try await FoundationModelBridge.respond(session: session, prompt: prompt)
   }
 
@@ -163,13 +166,21 @@ class LLMSession: SharedObject {
 
     streamTask?.cancel()
 
+    if let schema = generationSchema as? GenerationSchema {
+      startSchemaStream(session: session, prompt: prompt, schema: schema)
+    } else {
+      startTextStream(session: session, prompt: prompt)
+    }
+  }
+
+  @available(iOS 26, *)
+  private func startTextStream(session: Any, prompt: String) {
     let weakSelf = self
     streamTask = Task {
       var lastContent = ""
       do {
         let stream = FoundationModelBridge.stream(session: session, prompt: prompt)
         for try await content in stream {
-          // content is already the full accumulated text from Foundation Models
           let newToken = String(content.dropFirst(lastContent.count))
           lastContent = content
           weakSelf.emit(event: "token", arguments: [
@@ -179,6 +190,38 @@ class LLMSession: SharedObject {
         }
         weakSelf.emit(event: "streamComplete", arguments: [
           "text": lastContent
+        ])
+      } catch {
+        if Task.isCancelled { return }
+        weakSelf.emit(event: "streamError", arguments: [
+          "error": error.localizedDescription
+        ])
+      }
+    }
+  }
+
+  @available(iOS 26, *)
+  private func startSchemaStream(session: Any, prompt: String, schema: GenerationSchema) {
+    let weakSelf = self
+    let useIncludeSchemaInPrompt = includeSchemaInPrompt
+    streamTask = Task {
+      var lastJSON = ""
+      do {
+        let stream = FoundationModelBridge.stream(
+          session: session,
+          prompt: prompt,
+          schema: schema,
+          includeSchemaInPrompt: useIncludeSchemaInPrompt
+        )
+        for try await snapshot in stream {
+          lastJSON = snapshot.json
+          weakSelf.emit(event: "partial", arguments: [
+            "json": snapshot.json,
+            "complete": snapshot.complete,
+          ])
+        }
+        weakSelf.emit(event: "streamComplete", arguments: [
+          "text": lastJSON
         ])
       } catch {
         if Task.isCancelled { return }

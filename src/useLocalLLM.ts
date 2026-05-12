@@ -4,6 +4,7 @@ import type {
   ModelAvailability,
   SessionConfig,
   TokenEvent,
+  PartialEvent,
   StreamCompleteEvent,
   StreamErrorEvent,
   DownloadProgress,
@@ -21,6 +22,8 @@ type UseLocalLLMResult = {
   session: LLMSession | null;
   isGenerating: boolean;
   streamedText: string;
+  streamedJSON: string;
+  streamedObject: unknown;
   downloadProgress: number | null;
   error: string | null;
   activeToolCalls: ActiveToolCall[];
@@ -37,6 +40,8 @@ export function useLocalLLM(
     useState<ModelAvailability>("unknown");
   const [isGenerating, setIsGenerating] = useState(false);
   const [streamedText, setStreamedText] = useState("");
+  const [streamedJSON, setStreamedJSON] = useState("");
+  const [streamedObject, setStreamedObject] = useState<unknown>(null);
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeToolCalls, setActiveToolCalls] = useState<ActiveToolCall[]>([]);
@@ -83,10 +88,13 @@ export function useLocalLLM(
       options.options?.topK,
       options.toolTimeout,
       options.responseFormat,
+      options.includeSchemaInPrompt,
       schemaFingerprint,
       toolsFingerprint,
     ]
   );
+
+  const isJSONMode = options.responseFormat === "json" && !!options.schema;
 
   const session = useMemo(() => {
     if (!ExpoLocalLlmModule) return null;
@@ -128,8 +136,27 @@ export function useLocalLLM(
         })
       );
       subs.push(
+        session.addListener("partial", (event: PartialEvent) => {
+          setStreamedJSON(event.json);
+          try {
+            setStreamedObject(JSON.parse(event.json));
+          } catch {
+            // Partial may not be parseable yet; keep the previous parsed value.
+          }
+        })
+      );
+      subs.push(
         session.addListener("streamComplete", (event: StreamCompleteEvent) => {
-          setStreamedText(event.text);
+          if (isJSONMode) {
+            setStreamedJSON(event.text);
+            try {
+              setStreamedObject(JSON.parse(event.text));
+            } catch {
+              // Final JSON should always parse; leave previous value if it doesn't.
+            }
+          } else {
+            setStreamedText(event.text);
+          }
           setIsGenerating(false);
         })
       );
@@ -232,6 +259,8 @@ export function useLocalLLM(
       if (!session) throw new Error("Session not available");
       setError(null);
       setStreamedText("");
+      setStreamedJSON("");
+      setStreamedObject(null);
       setIsGenerating(true);
       try {
         await session.streamResponse(prompt);
@@ -261,6 +290,8 @@ export function useLocalLLM(
       session: null,
       isGenerating: false,
       streamedText: "",
+      streamedJSON: "",
+      streamedObject: null,
       downloadProgress: null,
       error: null,
       activeToolCalls: [],
@@ -272,6 +303,8 @@ export function useLocalLLM(
     session,
     isGenerating,
     streamedText,
+    streamedJSON,
+    streamedObject,
     downloadProgress,
     error,
     activeToolCalls,

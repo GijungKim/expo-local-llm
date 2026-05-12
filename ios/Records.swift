@@ -7,6 +7,7 @@ struct SessionConfig: Record {
   @Field var toolTimeout: Double?
   @Field var responseFormat: String?
   @Field var schema: [String: Any]?
+  @Field var includeSchemaInPrompt: Bool?
 }
 
 struct GenerationOptions: Record {

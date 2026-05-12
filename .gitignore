@@ -54,4 +54,15 @@ yarn-debug.log
 yarn-error.log
 
 # Expo
-.expo/*
+.expo/
+
+# Expo prebuild output (regenerated on every `expo prebuild`)
+example/ios/
+example/android/
+
+# npm pack output
+*.tgz
+
+# Lockfiles (library publishes without one; example regenerates locally)
+package-lock.json
+example/package-lock.json

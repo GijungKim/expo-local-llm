@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "expo-local-llm-example",
+    "slug": "expo-local-llm-example",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "ios": {
+      "bundleIdentifier": "com.example.expolocalllm"
+    },
+    "android": {
+      "package": "com.example.expolocalllm"
+    },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "16.0"
+          }
+        }
+      ]
+    ]
+  }
+}

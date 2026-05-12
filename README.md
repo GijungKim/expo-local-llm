@@ -94,17 +94,52 @@ function WeatherChat() {
 
 ### Structured Output
 
+iOS 26+ uses Apple's constrained decoding (`DynamicGenerationSchema`) — output is guaranteed to be
+a structurally-valid JSON object matching the schema. Android falls back to instruction-based
+guidance.
+
+<p align="center">
+  <img src="docs/structured-output.png" alt="Structured output demo — recipe JSON with constrained 'difficulty' enum on iPhone" width="320" />
+</p>
+
+*Real device output: the model fills in a recipe schema with `difficulty` constrained to `easy | medium | hard`. The streaming demo lives at `example/App.tsx`.*
+
 ```tsx
 const { respond } = useLocalLLM({
   responseFormat: 'json',
   schema: {
     name: { type: 'string', description: 'Recipe name' },
-    ingredients: { type: 'array', description: 'List of ingredients' },
-    steps: { type: 'array', description: 'Cooking steps' },
+    ingredients: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'List of ingredients',
+    },
+    steps: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Cooking steps',
+    },
+    difficulty: {
+      type: 'string',
+      enum: ['easy', 'medium', 'hard'],
+    },
   },
 });
 
 const recipe = JSON.parse(await respond('Give me a pasta recipe'));
+```
+
+Streaming with a schema yields progressively-filled snapshots via `streamedJSON` (the current
+partial as a JSON string) and `streamedObject` (the parsed value):
+
+```tsx
+const { streamResponse, streamedObject } = useLocalLLM({
+  responseFormat: 'json',
+  schema: { /* ... */ },
+});
+
+await streamResponse('Give me a pasta recipe');
+// streamedObject updates as the model fills in fields
 ```
 
 ## API
@@ -122,7 +157,8 @@ const recipe = JSON.parse(await respond('Give me a pasta recipe'));
 | `tools` | `ToolDefinition[]` | Tools the model can invoke (iOS 26+ only) |
 | `toolTimeout` | `number` | Seconds before an unresolved tool call times out (default 30) |
 | `responseFormat` | `"text" \| "json"` | Set to `"json"` for structured JSON output |
-| `schema` | `Record<string, any>` | JSON schema for structured output (used with `responseFormat: "json"`) |
+| `schema` | `Schema` | Schema for structured output (used with `responseFormat: "json"`) — see Structured Output section |
+| `includeSchemaInPrompt` | `boolean` | iOS 26+: include the schema definition in the prompt. Default `true`. Set `false` when you've front-loaded few-shot examples. |
 
 #### Returns
 
@@ -130,7 +166,9 @@ const recipe = JSON.parse(await respond('Give me a pasta recipe'));
 |----------|------|-------------|
 | `availability` | `ModelAvailability` | Current model status |
 | `isGenerating` | `boolean` | Whether a generation is in progress |
-| `streamedText` | `string` | Accumulated text from current stream |
+| `streamedText` | `string` | Accumulated text from current text stream |
+| `streamedJSON` | `string` | Current partial JSON from a schema-driven stream |
+| `streamedObject` | `unknown` | Parsed value of `streamedJSON` (or `null` before any partial) |
 | `downloadProgress` | `number \| null` | Download progress 0-1 (Android only) |
 | `error` | `string \| null` | Last error message |
 | `activeToolCalls` | `ActiveToolCall[]` | In-flight tool calls (`{ callId, toolName }`) |
@@ -161,7 +199,8 @@ const recipe = JSON.parse(await respond('Give me a pasta recipe'));
 - **iOS**: Apple's Foundation Model may refuse certain categories of prompts (e.g. personal health data interpretation) due to built-in safety guardrails.
 - Methods (`respond`, `streamResponse`, `cancelStream`) are only defined when `availability === 'available'`.
 - Tool calling is iOS 26+ only. Android will throw at session creation if tools are passed.
-- Structured output uses instruction-based JSON guidance, not Apple's constrained decoding.
+- Structured output on Android uses instruction-based JSON guidance. iOS 26+ uses constrained
+  decoding via `DynamicGenerationSchema`.
 
 ## Why an Expo module?
 
@@ -201,7 +240,7 @@ Llama/GGUF, MLC) with Vercel AI SDK integration, generative UI, and DevTools.
 | **Model management** | None — the OS handles it | You configure/download models |
 | **Bundle size impact** | Near zero | Depends on backend + model weights |
 | **Tool calling** | Yes (iOS 26+) | Yes |
-| **Structured output** | Yes (instruction-based) | Yes |
+| **Structured output** | Yes — constrained decoding on iOS 26+ | Yes |
 | **Expo native module** | Yes — `expo install` and go | Bare React Native setup |
 | **Dependencies** | None | Vercel AI SDK, Jotai, backend runtimes |
 
