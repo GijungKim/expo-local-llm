@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1
+
+Docs-only release. No runtime or API changes since 0.3.0.
+
+- **Install guide:** walk through `expo-build-properties` setup so iOS 26 SDK + Apple Intelligence
+  requirements are wired correctly out of the box.
+- **README:** refreshed the React Native AI library comparison.
+
 ## 0.3.0
 
 - **Constrained decoding for structured output (iOS 26+)** — `responseFormat: "json"` with a `schema`
