@@ -34,22 +34,25 @@ type UseLocalLLMResult = {
 };
 
 export function useLocalLLM(
-  options: UseLocalLLMOptions = {}
+  options: UseLocalLLMOptions = {},
 ): UseLocalLLMResult {
-  const [availability, setAvailability] =
-    useState<ModelAvailability>("unknown");
+  const [availability, setAvailability] = useState<ModelAvailability>(() =>
+    ExpoLocalLlmModule
+      ? (ExpoLocalLlmModule.getAvailability() as ModelAvailability)
+      : "unknown",
+  );
   const [isGenerating, setIsGenerating] = useState(false);
   const [streamedText, setStreamedText] = useState("");
   const [streamedJSON, setStreamedJSON] = useState("");
   const [streamedObject, setStreamedObject] = useState<unknown>(null);
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const [activeToolCalls, setActiveToolCalls] = useState<ActiveToolCall[]>([]);
 
   // Keep a ref to the current tool handlers so the event listener
   // always sees the latest handlers without needing to recreate the session.
   const toolHandlersRef = useRef<Map<string, ToolDefinition["handler"]>>(
-    new Map()
+    new Map(),
   );
 
   // Update handler ref whenever tools change
@@ -68,15 +71,17 @@ export function useLocalLLM(
   const toolsFingerprint = useMemo(
     () =>
       options.tools
-        ?.map((t) => `${t.name}:${t.description}:${JSON.stringify(t.parameters)}`)
+        ?.map(
+          (t) => `${t.name}:${t.description}:${JSON.stringify(t.parameters)}`,
+        )
         .join("|") ?? "",
-    [options.tools]
+    [options.tools],
   );
 
   // Fingerprint the schema so session recreates when it changes
   const schemaFingerprint = useMemo(
     () => (options.schema ? JSON.stringify(options.schema) : ""),
-    [options.schema]
+    [options.schema],
   );
 
   const stableConfig = useMemo(
@@ -91,27 +96,30 @@ export function useLocalLLM(
       options.includeSchemaInPrompt,
       schemaFingerprint,
       toolsFingerprint,
-    ]
+    ],
   );
 
   const isJSONMode = options.responseFormat === "json" && !!options.schema;
 
-  const session = useMemo(() => {
-    if (!ExpoLocalLlmModule) return null;
+  const sessionResult = useMemo<{
+    session: LLMSession | null;
+    creationError: string | null;
+  }>(() => {
+    if (!ExpoLocalLlmModule) return { session: null, creationError: null };
     try {
-      const s = createLLMSession(stableConfig);
-      setError(null);
-      return s;
+      return { session: createLLMSession(stableConfig), creationError: null };
     } catch (e: any) {
-      setError(e.message ?? "Failed to create LLM session");
-      return null;
+      return {
+        session: null,
+        creationError: e.message ?? "Failed to create LLM session",
+      };
     }
   }, [stableConfig]);
+  const session = sessionResult.session;
+  const error = sessionResult.creationError ?? runtimeError;
 
   useEffect(() => {
     if (!ExpoLocalLlmModule) return;
-
-    setAvailability(ExpoLocalLlmModule.getAvailability() as ModelAvailability);
 
     const subs: { remove(): void }[] = [];
 
@@ -120,20 +128,20 @@ export function useLocalLLM(
         "downloadProgress",
         (event: DownloadProgress) => {
           setDownloadProgress(event.progress);
-        }
-      )
+        },
+      ),
     );
     subs.push(
       ExpoLocalLlmModule.addListener("availabilityChange", (event) => {
         setAvailability(event.availability);
-      })
+      }),
     );
 
     if (session) {
       subs.push(
         session.addListener("token", (event: TokenEvent) => {
           setStreamedText(event.accumulated);
-        })
+        }),
       );
       subs.push(
         session.addListener("partial", (event: PartialEvent) => {
@@ -143,7 +151,7 @@ export function useLocalLLM(
           } catch {
             // Partial may not be parseable yet; keep the previous parsed value.
           }
-        })
+        }),
       );
       subs.push(
         session.addListener("streamComplete", (event: StreamCompleteEvent) => {
@@ -158,13 +166,13 @@ export function useLocalLLM(
             setStreamedText(event.text);
           }
           setIsGenerating(false);
-        })
+        }),
       );
       subs.push(
         session.addListener("streamError", (event: StreamErrorEvent) => {
-          setError(event.error);
+          setRuntimeError(event.error);
           setIsGenerating(false);
-        })
+        }),
       );
 
       // Tool call event listener
@@ -175,7 +183,7 @@ export function useLocalLLM(
 
           const removeActiveCall = () => {
             setActiveToolCalls((prev) =>
-              prev.filter((c) => c.callId !== event.callId)
+              prev.filter((c) => c.callId !== event.callId),
             );
           };
 
@@ -185,7 +193,7 @@ export function useLocalLLM(
             try {
               session.rejectToolCall(
                 event.callId,
-                `No handler registered for tool: ${event.toolName}`
+                `No handler registered for tool: ${event.toolName}`,
               );
             } catch {
               // Ignore if session is already torn down
@@ -202,7 +210,7 @@ export function useLocalLLM(
             try {
               session.rejectToolCall(
                 event.callId,
-                e.message || "Tool handler failed"
+                e.message || "Tool handler failed",
               );
             } catch {
               // Ignore if session is already torn down
@@ -220,13 +228,13 @@ export function useLocalLLM(
               try {
                 session.rejectToolCall(
                   event.callId,
-                  e.message || "Tool handler failed"
+                  e.message || "Tool handler failed",
                 );
               } catch {
                 // Ignore if session is already torn down
               }
             });
-        })
+        }),
       );
     }
 
@@ -239,25 +247,25 @@ export function useLocalLLM(
   const respond = useCallback(
     async (prompt: string): Promise<string> => {
       if (!session) throw new Error("Session not available");
-      setError(null);
+      setRuntimeError(null);
       setIsGenerating(true);
       try {
         const result = await session.respond(prompt);
         return result;
       } catch (e: any) {
-        setError(e.message);
+        setRuntimeError(e.message);
         throw e;
       } finally {
         setIsGenerating(false);
       }
     },
-    [session]
+    [session],
   );
 
   const streamResponse = useCallback(
     async (prompt: string): Promise<void> => {
       if (!session) throw new Error("Session not available");
-      setError(null);
+      setRuntimeError(null);
       setStreamedText("");
       setStreamedJSON("");
       setStreamedObject(null);
@@ -265,12 +273,12 @@ export function useLocalLLM(
       try {
         await session.streamResponse(prompt);
       } catch (e: any) {
-        setError(e.message);
+        setRuntimeError(e.message);
         setIsGenerating(false);
         throw e;
       }
     },
-    [session]
+    [session],
   );
 
   const cancelStream = useCallback(async (): Promise<void> => {

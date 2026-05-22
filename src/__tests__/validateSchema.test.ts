@@ -3,7 +3,9 @@ import { validateSchema, SchemaInvalidError } from "../validateSchema";
 describe("validateSchema", () => {
   describe("root", () => {
     it("ok with a non-empty schema", () => {
-      expect(validateSchema({ name: { type: "string" } })).toEqual({ ok: true });
+      expect(validateSchema({ name: { type: "string" } })).toEqual({
+        ok: true,
+      });
     });
 
     it("rejects empty schema", () => {
@@ -65,7 +67,7 @@ describe("validateSchema", () => {
       expect(
         validateSchema({
           difficulty: { type: "string", enum: ["easy", "medium", "hard"] },
-        })
+        }),
       ).toEqual({ ok: true });
     });
 
@@ -128,7 +130,7 @@ describe("validateSchema", () => {
               properties: { name: { type: "string" } },
             },
           },
-        })
+        }),
       ).toEqual({ ok: true });
     });
   });
@@ -197,7 +199,7 @@ describe("validateSchema", () => {
             type: "string",
             enum: ["easy", "medium", "hard"],
           },
-        })
+        }),
       ).toEqual({ ok: true });
     });
   });

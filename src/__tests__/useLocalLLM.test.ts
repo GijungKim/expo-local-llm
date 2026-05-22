@@ -1,3 +1,5 @@
+import ExpoLocalLlmModule from "../ExpoLocalLlmModule";
+
 jest.mock("expo-modules-core", () => ({
   requireNativeModule: jest.fn(() => {
     throw new Error("Native module not available");
@@ -14,8 +16,6 @@ jest.mock("expo-modules-core", () => ({
 jest.mock("react", () => ({
   ...jest.requireActual("react"),
 }));
-
-import ExpoLocalLlmModule from "../ExpoLocalLlmModule";
 
 describe("useLocalLLM prerequisites", () => {
   it("native module is null in test environment", () => {

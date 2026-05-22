@@ -19,6 +19,10 @@ Expo SDK 56 alignment. **Breaking:** iOS deployment target raised from 16.0 to 1
   own dev environment — consumers never see it. No-op once upstream patches.
 - **Example app:** removed `newArchEnabled: true` from `app.json` (no longer a valid
   schema property — new architecture is the default).
+- **`useLocalLLM` lint cleanup** for stricter React 19 / SDK 56 rules. No public API or
+  behavior changes: session creation is now a pure `useMemo`, session-creation errors are
+  derived and merged with runtime errors at render time, and initial `availability` is read
+  via a lazy `useState` initializer instead of an effect.
 
 ## 0.3.1
 
