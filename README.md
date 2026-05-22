@@ -6,7 +6,7 @@ Expo module for on-device LLM inference. Wraps Apple Foundation Models (iOS 26+)
 
 | Platform | Requirement |
 |----------|-------------|
-| iOS | iOS 26+ with Apple Intelligence enabled. Loads on iOS 16+ without crashing (returns `notEligible`). Host project must target iOS 16.0+. |
+| iOS | iOS 26+ with Apple Intelligence enabled. Loads on iOS 16.4+ without crashing (returns `notEligible`). Host project must target iOS 16.4+. |
 | Android | Device with Gemini Nano support (Pixel 8+, Galaxy S25+). Model may require download. |
 
 ## Installation
@@ -15,7 +15,7 @@ Expo module for on-device LLM inference. Wraps Apple Foundation Models (iOS 26+)
 npm install expo-local-llm
 ```
 
-This module requires **iOS 16.0+** as a compile target. The default Expo template targets iOS 15.1, so you'll need to raise it via [`expo-build-properties`](https://docs.expo.dev/versions/latest/sdk/build-properties/):
+This module requires **iOS 16.4+** as a compile target. Expo SDK 56's default is 16.4 (the same as the module's floor), but if you're on an older SDK or have customized the deployment target, raise it via [`expo-build-properties`](https://docs.expo.dev/versions/latest/sdk/build-properties/):
 
 ```bash
 npx expo install expo-build-properties
@@ -29,7 +29,7 @@ In `app.json`, add the plugin with the deployment target:
     "plugins": [
       [
         "expo-build-properties",
-        { "ios": { "deploymentTarget": "16.0" } }
+        { "ios": { "deploymentTarget": "16.4" } }
       ]
     ]
   }
@@ -42,7 +42,7 @@ Then prebuild:
 npx expo prebuild --clean
 ```
 
-> Without `expo-build-properties`, you'll hit `compiling for iOS 15.1, but module 'ExpoLocalLlm' has a minimum deployment target of iOS 16.0` at build time. (Apple Intelligence itself still requires iOS 26+ at runtime — the 16.0 floor is just for compilation; the module returns `notEligible` on iOS 16–25.)
+> If your project targets an iOS version below 16.4, you'll hit `compiling for iOS X.Y, but module 'ExpoLocalLlm' has a minimum deployment target of iOS 16.4` at build time. (Apple Intelligence itself still requires iOS 26+ at runtime — the 16.4 floor is just for compilation; the module returns `notEligible` on iOS 16.4–25.)
 
 ## Usage
 

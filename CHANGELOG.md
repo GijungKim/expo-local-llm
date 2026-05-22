@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.4.0
+
+Expo SDK 56 alignment. **Breaking:** iOS deployment target raised from 16.0 to 16.4.
+
+- **iOS deployment target → 16.4** (was 16.0) to match Expo SDK 56's new minimum.
+  Consumers on SDK 56 already default to 16.4; consumers on older SDKs must set
+  `expo-build-properties` `ios.deploymentTarget: "16.4"` to install.
+- **Toolchain bumps:** `expo@^56.0.3`, `expo-module-scripts@^56.0.2`, `react-native@0.85.3`,
+  `@types/react@~19.2.14`. Example app upgraded in lockstep
+  (`typescript@~6.0.3`, `expo-build-properties@~56.0.13`).
+- **Removed `expo-modules-core` from `peerDependencies`** — SDK 56 re-exports it from
+  the `expo` package and `expo-doctor` rejects direct installs.
+- **TypeScript config:** added explicit `rootDir: "./src"` (required by TS 6.0.3).
+- **`prepare` script workaround:** chmod the `expo-module-scripts/bin/expo-module-*` scripts.
+  Upstream regression in `expo-module-scripts@56.0.1+` ships them without the executable bit,
+  breaking `npm install`. Scoped to the `prepare` lifecycle so it only runs in this repo's
+  own dev environment — consumers never see it. No-op once upstream patches.
+- **Example app:** removed `newArchEnabled: true` from `app.json` (no longer a valid
+  schema property — new architecture is the default).
+
 ## 0.3.1
 
 Docs-only release. No runtime or API changes since 0.3.0.
