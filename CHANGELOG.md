@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- **`useLocalLLM` reliability fixes:**
+  - Module-level listeners (`downloadProgress`, `availabilityChange`) now live in
+    their own effect and subscribe once, instead of being torn down and
+    re-subscribed every time the config changes and the session is recreated —
+    which could briefly drop those events mid-recreation.
+  - `downloadModel()` now surfaces failures via the `error` state instead of
+    leaving a rejected promise unhandled.
+  - `activeToolCalls` is cleared at the start of each `respond()` /
+    `streamResponse()` so stale in-flight tool entries don't carry over between
+    generations.
+- **Tooling:** added a `.prettierrc` (`trailingComma: "all"`) so the repo's
+  Prettier 3 formatting style stops tripping the Prettier 2.x default bundled by
+  `expo-module-scripts`. `npm run lint` is now warning-free.
+
 ## 0.4.0
 
 Expo SDK 56 alignment. **Breaking:** iOS deployment target raised from 16.0 to 16.4.

@@ -118,24 +118,33 @@ export function useLocalLLM(
   const session = sessionResult.session;
   const error = sessionResult.creationError ?? runtimeError;
 
+  // Module-level listeners are independent of the session, so subscribe once.
+  // Keeping them out of the session effect avoids tearing them down (and briefly
+  // missing events) every time the config changes and the session is recreated.
   useEffect(() => {
     if (!ExpoLocalLlmModule) return;
 
-    const subs: { remove(): void }[] = [];
-
-    subs.push(
+    const subs = [
       ExpoLocalLlmModule.addListener(
         "downloadProgress",
         (event: DownloadProgress) => {
           setDownloadProgress(event.progress);
         },
       ),
-    );
-    subs.push(
       ExpoLocalLlmModule.addListener("availabilityChange", (event) => {
         setAvailability(event.availability);
       }),
-    );
+    ];
+
+    return () => {
+      subs.forEach((s) => s.remove());
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!ExpoLocalLlmModule) return;
+
+    const subs: { remove(): void }[] = [];
 
     if (session) {
       subs.push(
@@ -248,6 +257,7 @@ export function useLocalLLM(
     async (prompt: string): Promise<string> => {
       if (!session) throw new Error("Session not available");
       setRuntimeError(null);
+      setActiveToolCalls([]);
       setIsGenerating(true);
       try {
         const result = await session.respond(prompt);
@@ -269,6 +279,7 @@ export function useLocalLLM(
       setStreamedText("");
       setStreamedJSON("");
       setStreamedObject(null);
+      setActiveToolCalls([]);
       setIsGenerating(true);
       try {
         await session.streamResponse(prompt);
@@ -289,7 +300,13 @@ export function useLocalLLM(
 
   const downloadModel = useCallback(async (): Promise<void> => {
     if (!ExpoLocalLlmModule) return;
-    await ExpoLocalLlmModule.downloadModel();
+    setRuntimeError(null);
+    try {
+      await ExpoLocalLlmModule.downloadModel();
+    } catch (e: any) {
+      setRuntimeError(e?.message ?? "Model download failed");
+      throw e;
+    }
   }, []);
 
   if (!ExpoLocalLlmModule) {

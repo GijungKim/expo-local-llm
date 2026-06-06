@@ -46,7 +46,9 @@ function validateField(
   if (typeof type !== "string" || !ALLOWED_TYPES.has(type)) {
     errors.push({
       path,
-      message: `type must be one of: string, number, integer, boolean, array, object (got: ${JSON.stringify(type)})`,
+      message: `type must be one of: string, number, integer, boolean, array, object (got: ${JSON.stringify(
+        type,
+      )})`,
     });
     return;
   }
