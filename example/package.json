@@ -12,7 +12,7 @@
     "expo": "^56.0.3",
     "expo-build-properties": "~56.0.13",
     "expo-local-llm": "file:..",
-    "react": "19.2.6",
+    "react": "19.2.7",
     "react-native": "0.85.3"
   },
   "devDependencies": {
