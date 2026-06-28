@@ -269,7 +269,7 @@ a bare React Native library. Here's why:
 If you're on bare React Native without Expo, this module won't work — you'd need
 to add `expo-modules-core` as a dependency or use a different library.
 
-## How is this different from React Native AI? (as of May 2026)
+## How is this different from React Native AI? (as of June 2026)
 
 [React Native AI](https://github.com/callstackincubator/ai) (formerly `@callstack/ai`)
 is a Vercel AI SDK-compatible collection of on-device AI primitives, modularized
