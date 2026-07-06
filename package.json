@@ -42,12 +42,12 @@
   "author": "GijungKim <tonykim970@gmail.com>",
   "license": "MIT",
   "homepage": "https://github.com/GijungKim/expo-local-llm#readme",
-  "dependencies": {},
   "devDependencies": {
     "@types/react": "~19.2.14",
+    "expo": "^57.0.0",
     "expo-module-scripts": "^56.0.2",
-    "expo": "^56.0.3",
-    "react-native": "0.85.3"
+    "jest-expo": "~57.0.1",
+    "react-native": "0.86.0"
   },
   "jest": {
     "preset": "jest-expo/node"
