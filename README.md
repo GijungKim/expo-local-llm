@@ -8,6 +8,7 @@ Expo module for on-device LLM inference. Wraps Apple Foundation Models (iOS 26+)
 |----------|-------------|
 | iOS | iOS 26+ with Apple Intelligence enabled. Loads on iOS 16.4+ without crashing (returns `notEligible`). Host project must target iOS 16.4+. |
 | Android | Device with Gemini Nano support (Pixel 8+, Galaxy S25+). Model may require download. |
+| Expo SDK | 52+ (peer requirement). Tested against SDK 56 and SDK 57 (React Native 0.86). |
 
 ## Installation
 
@@ -15,7 +16,7 @@ Expo module for on-device LLM inference. Wraps Apple Foundation Models (iOS 26+)
 npm install expo-local-llm
 ```
 
-This module requires **iOS 16.4+** as a compile target. Expo SDK 56's default is 16.4 (the same as the module's floor), but if you're on an older SDK or have customized the deployment target, raise it via [`expo-build-properties`](https://docs.expo.dev/versions/latest/sdk/build-properties/):
+This module requires **iOS 16.4+** as a compile target. Expo SDK 56+ defaults to 16.4 (the same as the module's floor), but if you're on an older SDK or have customized the deployment target, raise it via [`expo-build-properties`](https://docs.expo.dev/versions/latest/sdk/build-properties/):
 
 ```bash
 npx expo install expo-build-properties

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.1
+
+Expo SDK 57 support. No runtime or API changes since 0.4.0 — the shipped code is identical;
+this release updates the toolchain and documents SDK 57 compatibility.
+
+- **Verified against Expo SDK 57 / React Native 0.86.0:** lint, build, and unit tests at the
+  module level; typecheck, `expo-doctor`, and a native iOS build of the example app.
+- **Toolchain bumps:** `expo@^57.0.0`, `react-native@0.86.0`, `react@19.2.3` (SDK 57 pins),
+  plus an explicit `jest-expo@~57.0.1` devDependency — `expo-module-scripts@56` pins
+  `jest-expo@~56`, whose peer deps conflict with RN 0.86 under npm and break the
+  `jest-expo/node` preset resolution.
+- **Example app** upgraded in lockstep (`expo@^57.0.0`, `expo-build-properties@~57.0.0`).
+- **README:** documented supported Expo SDK range (peers allow 52+; tested on 56 and 57).
+
 ## 0.4.0
 
 Expo SDK 56 alignment. **Breaking:** iOS deployment target raised from 16.0 to 16.4.
