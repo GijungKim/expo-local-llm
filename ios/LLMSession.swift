@@ -4,9 +4,16 @@ import Foundation
 import FoundationModels
 #endif
 
+/// Result of a finished stream task: the final text plus whether the stream
+/// ended because the user cancelled it (partial text, no `streamComplete`).
+private struct StreamOutcome {
+  let text: String
+  let cancelled: Bool
+}
+
 class LLMSession: SharedObject {
   private var nativeSession: Any?
-  private var streamTask: Task<Void, Never>?
+  private var streamTask: Task<StreamOutcome, Error>?
   private var registeredTools: [String: Any] = [:]  // name -> DynamicTool (type-erased)
   private var continuationStore: Any?  // ToolContinuationStore (type-erased for availability)
   private var toolConfigs: [ToolConfig] = []
@@ -14,6 +21,9 @@ class LLMSession: SharedObject {
   private var toolTimeout: TimeInterval = 30
   private var generationSchema: Any?  // GenerationSchema (type-erased for availability)
   private var includeSchemaInPrompt: Bool = true
+  private var temperature: Double?
+  private var maxTokens: Int?
+  private var topK: Int?
 
   static func checkAvailability() -> ModelAvailability {
     guard #available(iOS 26, *) else {
@@ -31,6 +41,9 @@ class LLMSession: SharedObject {
     sessionInstructions = instructions.isEmpty ? nil : instructions
     toolTimeout = config.toolTimeout ?? 30
     includeSchemaInPrompt = config.includeSchemaInPrompt ?? true
+    temperature = config.options?.temperature
+    maxTokens = config.options?.maxTokens
+    topK = config.options?.topK
 
     // Build a constrained-decoding schema if structured output is requested.
     if config.responseFormat == "json", let schemaDict = config.schema {
@@ -41,6 +54,22 @@ class LLMSession: SharedObject {
       toolConfigs = tools
       let store = ToolContinuationStore()
       continuationStore = store
+      rebuildTools(store: store)
+    } else {
+      nativeSession = FoundationModelBridge.createSession(instructions: sessionInstructions)
+    }
+  }
+
+  /// Clear the conversation transcript (keeps instructions, tools, schema,
+  /// and generation options). Cancels any in-flight stream and pending tool
+  /// calls — the model weights are OS-shared, so this is cheap.
+  func reset() throws {
+    guard #available(iOS 26, *) else {
+      throw NotSupportedException()
+    }
+    streamTask?.cancel()
+    streamTask = nil
+    if let store = continuationStore as? ToolContinuationStore, !toolConfigs.isEmpty {
       rebuildTools(store: store)
     } else {
       nativeSession = FoundationModelBridge.createSession(instructions: sessionInstructions)
@@ -144,91 +173,116 @@ class LLMSession: SharedObject {
 
   // MARK: - Generation
 
+  @available(iOS 26, *)
+  private func makeOptions() -> FoundationModels.GenerationOptions {
+    FoundationModelBridge.makeOptions(temperature: temperature, maxTokens: maxTokens, topK: topK)
+  }
+
   func respond(to prompt: String) async throws -> String {
     guard #available(iOS 26, *), let session = nativeSession else {
       throw NotSupportedException()
     }
+    let options = makeOptions()
     if let schema = generationSchema as? GenerationSchema {
       return try await FoundationModelBridge.respond(
         session: session,
         prompt: prompt,
         schema: schema,
-        includeSchemaInPrompt: includeSchemaInPrompt
+        includeSchemaInPrompt: includeSchemaInPrompt,
+        options: options
       )
     }
-    return try await FoundationModelBridge.respond(session: session, prompt: prompt)
+    return try await FoundationModelBridge.respond(session: session, prompt: prompt, options: options)
   }
 
-  func startStream(prompt: String) throws {
+  /// Stream a response, emitting `token`/`partial` events along the way.
+  /// Resolves with the final text when the stream completes, or with the
+  /// partial text produced so far if the stream is cancelled. Emits
+  /// `streamComplete` only on natural completion, `streamError` on failure.
+  func streamResponse(prompt: String) async throws -> String {
     guard #available(iOS 26, *), let session = nativeSession else {
       throw NotSupportedException()
     }
 
     streamTask?.cancel()
 
+    let task: Task<StreamOutcome, Error>
     if let schema = generationSchema as? GenerationSchema {
-      startSchemaStream(session: session, prompt: prompt, schema: schema)
+      task = makeSchemaStreamTask(session: session, prompt: prompt, schema: schema)
     } else {
-      startTextStream(session: session, prompt: prompt)
+      task = makeTextStreamTask(session: session, prompt: prompt)
+    }
+    streamTask = task
+
+    do {
+      let outcome = try await task.value
+      if !outcome.cancelled {
+        emit(event: "streamComplete", arguments: [
+          "text": outcome.text
+        ])
+      }
+      return outcome.text
+    } catch {
+      emit(event: "streamError", arguments: [
+        "error": error.localizedDescription
+      ])
+      throw StreamException(error.localizedDescription)
     }
   }
 
   @available(iOS 26, *)
-  private func startTextStream(session: Any, prompt: String) {
-    let weakSelf = self
-    streamTask = Task {
+  private func makeTextStreamTask(session: Any, prompt: String) -> Task<StreamOutcome, Error> {
+    let options = makeOptions()
+    return Task {
       var lastContent = ""
       do {
-        let stream = FoundationModelBridge.stream(session: session, prompt: prompt)
+        let stream = FoundationModelBridge.stream(session: session, prompt: prompt, options: options)
         for try await content in stream {
           let newToken = String(content.dropFirst(lastContent.count))
           lastContent = content
-          weakSelf.emit(event: "token", arguments: [
+          self.emit(event: "token", arguments: [
             "token": newToken,
             "accumulated": content
           ])
         }
-        weakSelf.emit(event: "streamComplete", arguments: [
-          "text": lastContent
-        ])
       } catch {
-        if Task.isCancelled { return }
-        weakSelf.emit(event: "streamError", arguments: [
-          "error": error.localizedDescription
-        ])
+        if Task.isCancelled || error is CancellationError {
+          return StreamOutcome(text: lastContent, cancelled: true)
+        }
+        throw error
       }
+      return StreamOutcome(text: lastContent, cancelled: Task.isCancelled)
     }
   }
 
   @available(iOS 26, *)
-  private func startSchemaStream(session: Any, prompt: String, schema: GenerationSchema) {
-    let weakSelf = self
+  private func makeSchemaStreamTask(session: Any, prompt: String, schema: GenerationSchema) -> Task<StreamOutcome, Error> {
     let useIncludeSchemaInPrompt = includeSchemaInPrompt
-    streamTask = Task {
+    let options = makeOptions()
+    return Task {
       var lastJSON = ""
       do {
         let stream = FoundationModelBridge.stream(
           session: session,
           prompt: prompt,
           schema: schema,
-          includeSchemaInPrompt: useIncludeSchemaInPrompt
+          includeSchemaInPrompt: useIncludeSchemaInPrompt,
+          options: options
         )
         for try await snapshot in stream {
           lastJSON = snapshot.json
-          weakSelf.emit(event: "partial", arguments: [
+          self.emit(event: "partial", arguments: [
             "json": snapshot.json,
             "complete": snapshot.complete,
           ])
         }
-        weakSelf.emit(event: "streamComplete", arguments: [
-          "text": lastJSON
-        ])
       } catch {
-        if Task.isCancelled { return }
-        weakSelf.emit(event: "streamError", arguments: [
-          "error": error.localizedDescription
-        ])
+        if Task.isCancelled || error is CancellationError {
+          return StreamOutcome(text: lastJSON, cancelled: true)
+        }
+        throw error
       }
+      return StreamOutcome(text: lastJSON, cancelled: Task.isCancelled)
     }
   }
 

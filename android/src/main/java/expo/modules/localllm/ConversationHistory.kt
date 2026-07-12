@@ -16,6 +16,10 @@ class ConversationHistory(private val systemInstructions: String?) {
     trimHistory()
   }
 
+  fun clear() {
+    messages.clear()
+  }
+
   fun buildPrompt(): String {
     val sb = StringBuilder()
     if (!systemInstructions.isNullOrBlank()) {

@@ -71,8 +71,8 @@ function Chat() {
   }
 
   const handleSend = async (prompt: string) => {
-    // Streaming — updates streamedText live
-    await streamResponse(prompt);
+    // Streaming — updates streamedText live, resolves with the final text
+    const text = await streamResponse(prompt);
 
     // Or non-streaming:
     // const response = await respond(prompt);
@@ -158,6 +158,19 @@ const { respond } = useLocalLLM({
 const recipe = JSON.parse(await respond('Give me a pasta recipe'));
 ```
 
+For one-shot structured calls (classification, extraction) where you don't want conversation
+history accumulating between calls, use `generate()` instead of a session:
+
+```ts
+import { generate } from 'expo-local-llm';
+
+const json = await generate('Classify this message: "how was my sleep?"', {
+  instructions: 'Classify what the message asks for.',
+  responseFormat: 'json',
+  schema: { topic: { type: 'string', enum: ['sleep', 'heart', 'none'] } },
+});
+```
+
 Streaming with a schema yields progressively-filled snapshots via `streamedJSON` (the current
 partial as a JSON string) and `streamedObject` (the parsed value):
 
@@ -198,8 +211,8 @@ if (!result.ok) {
 |--------|------|-------------|
 | `instructions` | `string` | System instructions for the session |
 | `options.temperature` | `number` | Sampling temperature |
-| `options.maxTokens` | `number` | Max output tokens (capped at 256 on Android) |
-| `options.topK` | `number` | Top-K sampling |
+| `options.maxTokens` | `number` | Max output tokens (capped at 256 on Android; maps to `maximumResponseTokens` on iOS) |
+| `options.topK` | `number` | Top-K sampling (maps to `.random(top:)` on iOS) |
 | `tools` | `ToolDefinition[]` | Tools the model can invoke (iOS 26+ only) |
 | `toolTimeout` | `number` | Seconds before an unresolved tool call times out (default 30) |
 | `responseFormat` | `"text" \| "json"` | Set to `"json"` for structured JSON output |
@@ -220,9 +233,17 @@ if (!result.ok) {
 | `activeToolCalls` | `ActiveToolCall[]` | In-flight tool calls (`{ callId, toolName }`) |
 | `respond` | `(prompt: string) => Promise<string>` | Non-streaming generation. `undefined` when unavailable. |
 | `session` | `LLMSession \| null` | The native session object. `null` when unavailable. |
-| `streamResponse` | `(prompt: string) => Promise<void>` | Streaming generation (updates `streamedText`). `undefined` when model not `available`. |
-| `cancelStream` | `() => Promise<void>` | Cancel active stream. `undefined` when unavailable. |
+| `streamResponse` | `(prompt: string) => Promise<string>` | Streaming generation (updates `streamedText`). Resolves with the final text at stream end, or the partial text if cancelled; rejects on stream failure. `undefined` when model not `available`. |
+| `cancelStream` | `() => Promise<void>` | Cancel the active stream. Actually stops inference (not just token delivery); the pending `streamResponse` promise resolves with the partial text. `undefined` when unavailable. |
+| `reset` | `() => void` | Clear the conversation transcript, keeping instructions/tools/schema/options. Also cancels any in-flight stream. `undefined` only when there is no session. |
 | `downloadModel` | `() => Promise<void>` | Trigger model download (Android). `undefined` when unavailable. |
+
+### `generate(prompt, config?)`
+
+One-shot stateless generation — creates a session, responds once, and releases it. Takes the
+same config as `useLocalLLM`/`createLLMSession`. Use it for classification or extraction
+calls where conversation history between calls is unwanted. Throws when the module or model
+is unavailable (check `ExpoLocalLlmModule.getAvailability()` first if you need to gate).
 
 ### `ModelAvailability`
 

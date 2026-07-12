@@ -1,4 +1,9 @@
-import { LLMSession, createLLMSession, ExpoLocalLlmModule } from "../index";
+import {
+  LLMSession,
+  createLLMSession,
+  generate,
+  ExpoLocalLlmModule,
+} from "../index";
 
 jest.mock("expo-modules-core", () => ({
   requireNativeModule: jest.fn(() => {
@@ -25,6 +30,11 @@ describe("ExpoLocalLlm", () => {
       expect(typeof createLLMSession).toBe("function");
     });
 
+    it("exports generate function", () => {
+      expect(generate).toBeDefined();
+      expect(typeof generate).toBe("function");
+    });
+
     it("exports ExpoLocalLlmModule as null when native module is unavailable", () => {
       expect(ExpoLocalLlmModule).toBeNull();
     });
@@ -37,8 +47,14 @@ describe("ExpoLocalLlm", () => {
 
     it("throws with module name in message", () => {
       expect(() => createLLMSession({ instructions: "test" })).toThrow(
-        /ExpoLocalLlm/,
+        /ExpoLocalLlm/
       );
+    });
+  });
+
+  describe("generate", () => {
+    it("rejects when native module is not loaded", async () => {
+      await expect(generate("hello")).rejects.toThrow(/ExpoLocalLlm/);
     });
   });
 

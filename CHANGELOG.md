@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.5.0
+
+Cancellation that actually cancels, promise-based stream completion, session reset, one-shot
+generation, and working generation options on iOS.
+
+**Breaking:**
+
+- **`streamResponse()` now resolves at stream end with the final text** (was: resolved
+  immediately with `void`). `await streamResponse(prompt)` gives you the complete response —
+  no more reconstructing "stream finished" from `isGenerating` transitions. On failure the
+  promise rejects (in addition to the existing `streamError` event). If the stream is
+  cancelled, it resolves with the partial text produced so far and `streamComplete` is
+  NOT emitted.
+- **`cancelStream()` now actually stops inference.** Previously it only stopped consuming
+  tokens — the model kept generating to completion in the background (battery/thermal cost,
+  and the busy session could reject the next prompt). The producer task is now cancelled via
+  `AsyncThrowingStream.onTermination`.
+
+**New:**
+
+- **`session.reset()`** (also returned from `useLocalLLM`) — clears the conversation
+  transcript while keeping instructions, tools, schema, and generation options, and cancels
+  any in-flight stream. This replaces the workaround of interpolating a changing key into
+  `instructions` to force session recreation. Cheap: model weights are OS-shared; only the
+  conversation state is rebuilt.
+- **`generate(prompt, config?)`** — one-shot stateless generation: creates a session,
+  responds once, releases it. Built for classification/extraction calls where transcript
+  accumulation between calls is unwanted.
+- **`options.{temperature, maxTokens, topK}` now work on iOS.** These were accepted by the
+  type layer but never reached the native model call. They now map to Apple's
+  `GenerationOptions` (`temperature`, `maximumResponseTokens`, and `topK` →
+  `.random(top:)` sampling). Android behavior unchanged (already applied; `maxTokens`
+  still capped at 256 by the SDK).
+
+**Fixed:**
+
+- Tool-call timeout tasks are cancelled as soon as the call resolves, instead of sleeping
+  out the full `toolTimeout` in the background after every fast tool handler.
+
 ## 0.4.1
 
 Expo SDK 57 support. No runtime or API changes since 0.4.0 — the shipped code is identical;

@@ -28,18 +28,19 @@ type UseLocalLLMResult = {
   error: string | null;
   activeToolCalls: ActiveToolCall[];
   respond?: (prompt: string) => Promise<string>;
-  streamResponse?: (prompt: string) => Promise<void>;
+  streamResponse?: (prompt: string) => Promise<string>;
   cancelStream?: () => Promise<void>;
+  reset?: () => void;
   downloadModel?: () => Promise<void>;
 };
 
 export function useLocalLLM(
-  options: UseLocalLLMOptions = {},
+  options: UseLocalLLMOptions = {}
 ): UseLocalLLMResult {
   const [availability, setAvailability] = useState<ModelAvailability>(() =>
     ExpoLocalLlmModule
       ? (ExpoLocalLlmModule.getAvailability() as ModelAvailability)
-      : "unknown",
+      : "unknown"
   );
   const [isGenerating, setIsGenerating] = useState(false);
   const [streamedText, setStreamedText] = useState("");
@@ -52,7 +53,7 @@ export function useLocalLLM(
   // Keep a ref to the current tool handlers so the event listener
   // always sees the latest handlers without needing to recreate the session.
   const toolHandlersRef = useRef<Map<string, ToolDefinition["handler"]>>(
-    new Map(),
+    new Map()
   );
 
   // Update handler ref whenever tools change
@@ -72,16 +73,16 @@ export function useLocalLLM(
     () =>
       options.tools
         ?.map(
-          (t) => `${t.name}:${t.description}:${JSON.stringify(t.parameters)}`,
+          (t) => `${t.name}:${t.description}:${JSON.stringify(t.parameters)}`
         )
         .join("|") ?? "",
-    [options.tools],
+    [options.tools]
   );
 
   // Fingerprint the schema so session recreates when it changes
   const schemaFingerprint = useMemo(
     () => (options.schema ? JSON.stringify(options.schema) : ""),
-    [options.schema],
+    [options.schema]
   );
 
   const stableConfig = useMemo(
@@ -96,7 +97,7 @@ export function useLocalLLM(
       options.includeSchemaInPrompt,
       schemaFingerprint,
       toolsFingerprint,
-    ],
+    ]
   );
 
   const isJSONMode = options.responseFormat === "json" && !!options.schema;
@@ -128,20 +129,20 @@ export function useLocalLLM(
         "downloadProgress",
         (event: DownloadProgress) => {
           setDownloadProgress(event.progress);
-        },
-      ),
+        }
+      )
     );
     subs.push(
       ExpoLocalLlmModule.addListener("availabilityChange", (event) => {
         setAvailability(event.availability);
-      }),
+      })
     );
 
     if (session) {
       subs.push(
         session.addListener("token", (event: TokenEvent) => {
           setStreamedText(event.accumulated);
-        }),
+        })
       );
       subs.push(
         session.addListener("partial", (event: PartialEvent) => {
@@ -151,7 +152,7 @@ export function useLocalLLM(
           } catch {
             // Partial may not be parseable yet; keep the previous parsed value.
           }
-        }),
+        })
       );
       subs.push(
         session.addListener("streamComplete", (event: StreamCompleteEvent) => {
@@ -166,13 +167,13 @@ export function useLocalLLM(
             setStreamedText(event.text);
           }
           setIsGenerating(false);
-        }),
+        })
       );
       subs.push(
         session.addListener("streamError", (event: StreamErrorEvent) => {
           setRuntimeError(event.error);
           setIsGenerating(false);
-        }),
+        })
       );
 
       // Tool call event listener
@@ -183,7 +184,7 @@ export function useLocalLLM(
 
           const removeActiveCall = () => {
             setActiveToolCalls((prev) =>
-              prev.filter((c) => c.callId !== event.callId),
+              prev.filter((c) => c.callId !== event.callId)
             );
           };
 
@@ -193,7 +194,7 @@ export function useLocalLLM(
             try {
               session.rejectToolCall(
                 event.callId,
-                `No handler registered for tool: ${event.toolName}`,
+                `No handler registered for tool: ${event.toolName}`
               );
             } catch {
               // Ignore if session is already torn down
@@ -210,7 +211,7 @@ export function useLocalLLM(
             try {
               session.rejectToolCall(
                 event.callId,
-                e.message || "Tool handler failed",
+                e.message || "Tool handler failed"
               );
             } catch {
               // Ignore if session is already torn down
@@ -228,13 +229,13 @@ export function useLocalLLM(
               try {
                 session.rejectToolCall(
                   event.callId,
-                  e.message || "Tool handler failed",
+                  e.message || "Tool handler failed"
                 );
               } catch {
                 // Ignore if session is already torn down
               }
             });
-        }),
+        })
       );
     }
 
@@ -259,11 +260,11 @@ export function useLocalLLM(
         setIsGenerating(false);
       }
     },
-    [session],
+    [session]
   );
 
   const streamResponse = useCallback(
-    async (prompt: string): Promise<void> => {
+    async (prompt: string): Promise<string> => {
       if (!session) throw new Error("Session not available");
       setRuntimeError(null);
       setStreamedText("");
@@ -271,19 +272,33 @@ export function useLocalLLM(
       setStreamedObject(null);
       setIsGenerating(true);
       try {
-        await session.streamResponse(prompt);
+        // Resolves with the final text at stream end (or the partial text
+        // if cancelled); rejects if the stream fails.
+        return await session.streamResponse(prompt);
       } catch (e: any) {
         setRuntimeError(e.message);
-        setIsGenerating(false);
         throw e;
+      } finally {
+        setIsGenerating(false);
       }
     },
-    [session],
+    [session]
   );
 
   const cancelStream = useCallback(async (): Promise<void> => {
     if (!session) return;
     await session.cancelStream();
+    setIsGenerating(false);
+  }, [session]);
+
+  const reset = useCallback((): void => {
+    if (!session) return;
+    session.reset();
+    setStreamedText("");
+    setStreamedJSON("");
+    setStreamedObject(null);
+    setRuntimeError(null);
+    setActiveToolCalls([]);
     setIsGenerating(false);
   }, [session]);
 
@@ -321,6 +336,8 @@ export function useLocalLLM(
       session && availability === "available" ? streamResponse : undefined,
     cancelStream:
       session && availability === "available" ? cancelStream : undefined,
+    // Resetting is safe in any availability state — gate on session only.
+    reset: session ? reset : undefined,
     downloadModel,
   };
 }

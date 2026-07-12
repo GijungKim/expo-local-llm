@@ -1,5 +1,5 @@
 export { useLocalLLM } from "./useLocalLLM";
-export { LLMSession, createLLMSession } from "./LLMSession";
+export { LLMSession, createLLMSession, generate } from "./LLMSession";
 export { default as ExpoLocalLlmModule } from "./ExpoLocalLlmModule";
 export {
   validateSchema,

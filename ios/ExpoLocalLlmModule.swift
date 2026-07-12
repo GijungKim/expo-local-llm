@@ -28,12 +28,16 @@ public class ExpoLocalLlmModule: Module {
         return try await session.respond(to: prompt)
       }
 
-      AsyncFunction("streamResponse") { (session: LLMSession, prompt: String) in
-        try session.startStream(prompt: prompt)
+      AsyncFunction("streamResponse") { (session: LLMSession, prompt: String) -> String in
+        return try await session.streamResponse(prompt: prompt)
       }
 
       AsyncFunction("cancelStream") { (session: LLMSession) in
         session.cancelStream()
+      }
+
+      Function("reset") { (session: LLMSession) in
+        try session.reset()
       }
 
       // Tool calling support

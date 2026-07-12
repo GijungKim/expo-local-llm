@@ -77,17 +77,24 @@ class LLMSession(
     return text
   }
 
-  fun startStream(prompt: String) {
+  /**
+   * Stream a response, emitting `token` events along the way. Resolves with
+   * the final text when the stream completes, or with the partial text
+   * produced so far if the stream is cancelled. Emits `streamComplete` only
+   * on natural completion, `streamError` on failure.
+   */
+  suspend fun streamResponse(prompt: String): String {
     streamJob?.cancel()
     history.addUserMessage(prompt)
     val fullPrompt = history.buildPrompt()
 
-    streamJob = scope.launch {
+    var accumulated = ""
+    var failure: Exception? = null
+    var completed = false
+    val job = scope.launch {
       try {
         val genModel = getOrCreateModel()
-        var accumulated = ""
-        val responseStream = genModel.generateContentStream(fullPrompt)
-        responseStream.collect { chunk ->
+        genModel.generateContentStream(fullPrompt).collect { chunk ->
           val token = chunk.text ?: ""
           accumulated += token
           emit("token", mapOf(
@@ -95,19 +102,41 @@ class LLMSession(
             "accumulated" to accumulated
           ))
         }
-        history.addAssistantMessage(accumulated)
-        emit("streamComplete", mapOf("text" to accumulated))
+        completed = true
       } catch (e: CancellationException) {
         // User-initiated cancellation — not an error
+        throw e
       } catch (e: Exception) {
+        failure = e
         emit("streamError", mapOf("error" to (e.message ?: "Unknown error")))
       }
     }
+    streamJob = job
+    job.join()
+
+    failure?.let { throw StreamException(it.message ?: "Unknown error") }
+    if (accumulated.isNotEmpty()) {
+      history.addAssistantMessage(accumulated)
+    }
+    if (completed) {
+      emit("streamComplete", mapOf("text" to accumulated))
+    }
+    return accumulated
   }
 
   fun cancelStream() {
     streamJob?.cancel()
     streamJob = null
+  }
+
+  /**
+   * Clear the conversation history (keeps instructions and generation
+   * options). Cancels any in-flight stream.
+   */
+  fun reset() {
+    streamJob?.cancel()
+    streamJob = null
+    history.clear()
   }
 
   override fun deallocate() {

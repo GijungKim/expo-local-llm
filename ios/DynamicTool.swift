@@ -78,13 +78,17 @@ final class DynamicTool: Tool {
     return try await withCheckedThrowingContinuation { continuation in
       continuationStore.store(callId: callId, continuation: continuation)
 
-      // Schedule timeout
-      Task {
+      // Schedule timeout — cancelled by the store when the call resolves,
+      // so it doesn't linger for the full duration after a fast handler.
+      let timeoutSeconds = self.timeoutSeconds
+      let timeoutTask = Task { [continuationStore] in
         try? await Task.sleep(for: .seconds(timeoutSeconds))
+        guard !Task.isCancelled else { return }
         if let timedOut = continuationStore.remove(callId: callId) {
           timedOut.resume(throwing: DynamicToolError.timeout)
         }
       }
+      continuationStore.attachTimeout(callId: callId, task: timeoutTask)
     }
   }
 
@@ -111,20 +115,39 @@ final class DynamicTool: Tool {
 /// Thread-safe store for pending tool call continuations.
 @available(iOS 26, *)
 final class ToolContinuationStore: @unchecked Sendable {
-  private var continuations: [String: CheckedContinuation<String, Error>] = [:]
+  private struct Pending {
+    let continuation: CheckedContinuation<String, Error>
+    var timeoutTask: Task<Void, Never>?
+  }
+
+  private var pending: [String: Pending] = [:]
   private let lock = NSLock()
 
   func store(callId: String, continuation: CheckedContinuation<String, Error>) {
     lock.lock()
-    continuations[callId] = continuation
+    pending[callId] = Pending(continuation: continuation, timeoutTask: nil)
     lock.unlock()
+  }
+
+  /// Attach the timeout task for a call so it can be cancelled on resolve.
+  /// If the call already resolved, the task is cancelled immediately.
+  func attachTimeout(callId: String, task: Task<Void, Never>) {
+    lock.lock()
+    if pending[callId] != nil {
+      pending[callId]?.timeoutTask = task
+      lock.unlock()
+    } else {
+      lock.unlock()
+      task.cancel()
+    }
   }
 
   func remove(callId: String) -> CheckedContinuation<String, Error>? {
     lock.lock()
-    let cont = continuations.removeValue(forKey: callId)
+    let entry = pending.removeValue(forKey: callId)
     lock.unlock()
-    return cont
+    entry?.timeoutTask?.cancel()
+    return entry?.continuation
   }
 
   /// Resolve a pending continuation with a result string.
@@ -144,11 +167,12 @@ final class ToolContinuationStore: @unchecked Sendable {
   /// Cancel all pending continuations (e.g., on session teardown).
   func cancelAll() {
     lock.lock()
-    let pending = continuations
-    continuations.removeAll()
+    let entries = pending
+    pending.removeAll()
     lock.unlock()
-    for (_, continuation) in pending {
-      continuation.resume(throwing: CancellationError())
+    for (_, entry) in entries {
+      entry.timeoutTask?.cancel()
+      entry.continuation.resume(throwing: CancellationError())
     }
   }
 }

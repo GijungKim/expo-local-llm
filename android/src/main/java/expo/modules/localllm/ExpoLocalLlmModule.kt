@@ -42,12 +42,16 @@ class ExpoLocalLlmModule : Module() {
         session.respond(prompt)
       }
 
-      AsyncFunction("streamResponse") { session: LLMSession, prompt: String ->
-        session.startStream(prompt)
+      AsyncFunction("streamResponse") Coroutine { session: LLMSession, prompt: String ->
+        session.streamResponse(prompt)
       }
 
       AsyncFunction("cancelStream") { session: LLMSession ->
         session.cancelStream()
+      }
+
+      Function("reset") { session: LLMSession ->
+        session.reset()
       }
 
       // Tool calling stubs — not yet supported on Android

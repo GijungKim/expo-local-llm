@@ -35,7 +35,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 function validateField(
   field: unknown,
   path: string,
-  errors: SchemaValidationError[],
+  errors: SchemaValidationError[]
 ): void {
   if (!isPlainObject(field)) {
     errors.push({ path, message: "field must be an object" });
@@ -46,7 +46,9 @@ function validateField(
   if (typeof type !== "string" || !ALLOWED_TYPES.has(type)) {
     errors.push({
       path,
-      message: `type must be one of: string, number, integer, boolean, array, object (got: ${JSON.stringify(type)})`,
+      message: `type must be one of: string, number, integer, boolean, array, object (got: ${JSON.stringify(
+        type
+      )})`,
     });
     return;
   }
