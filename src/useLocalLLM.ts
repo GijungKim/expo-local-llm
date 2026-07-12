@@ -243,7 +243,11 @@ export function useLocalLLM(
       subs.forEach((s) => s.remove());
       session?.release();
     };
-  }, [session]);
+    // isJSONMode: used by the streamComplete listener. Today it can only
+    // change together with a session recreation (responseFormat/schema are
+    // in stableConfig), but depending on it directly removes the reliance
+    // on that invariant.
+  }, [session, isJSONMode]);
 
   const respond = useCallback(
     async (prompt: string): Promise<string> => {
