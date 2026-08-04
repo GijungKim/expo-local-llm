@@ -2,5 +2,24 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended"
+  ],
+  "packageRules": [
+    {
+      "matchPackageNames": ["react", "react-dom"],
+      "enabled": false,
+      "description": "Pinned exactly by the Expo SDK; bumped via `npx expo install --fix` during SDK upgrades"
+    },
+    {
+      "matchPackageNames": ["typescript"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false,
+      "description": "Expo SDK pins the TypeScript major (SDK 57 expects ~6.0.3); bump alongside SDK upgrades"
+    },
+    {
+      "matchPackageNames": ["react-native"],
+      "matchUpdateTypes": ["minor", "major"],
+      "enabled": false,
+      "description": "Pinned per Expo SDK; patch updates within the SDK's minor are fine, minors/majors land with SDK upgrades"
+    }
   ]
 }
