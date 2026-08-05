@@ -291,13 +291,15 @@ a bare React Native library. Here's why:
 If you're on bare React Native without Expo, this module won't work — you'd need
 to add `expo-modules-core` as a dependency or use a different library.
 
-## How is this different from React Native AI? (as of June 2026)
+## How is this different from React Native AI? (as of August 2026)
 
 [React Native AI](https://github.com/callstackincubator/ai) (formerly `@callstack/ai`)
 is a Vercel AI SDK-compatible collection of on-device AI primitives, modularized
 into per-backend packages: `@react-native-ai/apple`, `@react-native-ai/llama`,
-`@react-native-ai/mlc`. It covers text generation, embeddings, transcription, and
-speech synthesis.
+`@react-native-ai/mlc`, and — new as of July 2026 — `@react-native-ai/adk`, which
+wraps Google's Agent Development Kit to run on-device Gemini Nano (or cloud
+Gemini) on Android. It covers text generation, tool calling, embeddings,
+transcription, and speech synthesis.
 
 `expo-local-llm` takes a narrower approach:
 
@@ -305,24 +307,33 @@ speech synthesis.
 |---|---|---|
 | **Surface** | React hook (`useLocalLLM`) and a native session object | Vercel AI SDK provider (`generateText`, `streamText`, `embed`, `transcribe`, `speech`) |
 | **iOS model** | Apple Foundation Models (system-provided) | Apple Foundation Models, Llama (via llama.rn), MLC LLM |
-| **Android model** | Gemini Nano (system-provided) | Llama, MLC (no built-in OS model) |
-| **Capabilities** | Text generation, tool calling, constrained JSON output | Text, embeddings, transcription, speech synthesis |
-| **Model management** | None — the OS handles it | Built-in for Apple; download/prepare for Llama/MLC |
-| **Bundle size impact** | Near zero | Depends on which provider you install + model weights |
+| **Android model** | Gemini Nano (system-provided) | Gemini Nano (via ADK/ML Kit GenAI), cloud Gemini, Llama, MLC |
+| **Capabilities** | Text generation, tool calling, constrained JSON output | Text, tool calling, embeddings, transcription, speech synthesis, image input (ADK) |
+| **Structured output** | Constrained decoding on iOS; instruction-based on Android | JSON mode via `responseMimeType` on ADK (no schema constraints); MLC on iOS |
+| **Model management** | None — the OS handles it | Built-in for Apple/ADK; download/prepare for Llama/MLC |
+| **Bundle size impact** | Near zero | Depends on which provider you install + model weights (ADK pulls in Google GenAI libraries) |
 | **DevTools** | None | AI SDK Profiler via Rozenite (OpenTelemetry spans) |
-| **Install path** | One `expo install`, autolinks | Per-package install (Apple provider autolinks; Llama/MLC need extra setup) |
-| **Dependencies** | None | Vercel AI SDK (v6) and per-provider runtimes |
+| **Install path** | One `expo install`, autolinks | Per-package install; ADK needs New Architecture, `minSdkVersion` 26, and packaging excludes |
+| **Dependencies** | None | Vercel AI SDK (v6 as of v0.12) and per-provider runtimes |
 
 **Choose `expo-local-llm` if** you want the simplest path to on-device LLM in
 an Expo app and are happy using whatever model the OS provides (Apple Foundation
 Models on iOS, Gemini Nano on Android). There's nothing to configure, no weights
-to bundle, and it works on both platforms.
+to bundle, and it works on both platforms with a single install.
 
 **Choose React Native AI if** you need any of:
 - Vercel AI SDK compatibility (drop-in replacement for cloud-LLM apps)
-- Capabilities beyond text generation (embeddings, transcription, speech synthesis)
+- Capabilities beyond text generation (embeddings, transcription, speech synthesis, image input)
 - Specific models (Llama 3.2, Phi-3, Mistral, Qwen) on either iOS or Android
+- A cloud Gemini fallback behind the same API as on-device Gemini Nano
 - AI SDK Profiler DevTools for tracing
+
+The biggest change since June 2026: React Native AI's `@react-native-ai/adk`
+package closed the Android gap — it now offers system-provided Gemini Nano too,
+with tool calling and multimodal input. The remaining differences are setup
+weight (ADK requires New Architecture, `minSdkVersion` 26, and Gradle packaging
+tweaks vs. a single `expo install` here) and API shape (Vercel AI SDK functions
+vs. a React hook with a session object).
 
 ## Built with expo-local-llm
 
