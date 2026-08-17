@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
+
+Types-only release: tool-call arguments are now honestly typed.
 
 **Breaking (types only):**
 
