@@ -47,8 +47,10 @@ export function createLLMSession(config: SessionConfig = {}): LLMSession {
   // Strip handler functions before passing to native — native doesn't need them
   const nativeConfig = {
     ...config,
-    tools: config.tools?.map(({ handler, ...rest }) => rest),
+    tools: config.tools?.map(({ handler: _handler, ...rest }) => rest),
   };
+  // SAFETY: the native module exposes `LLMSession` as an untyped shared-object
+  // class; its instances implement the `LLMSession` contract in this file.
   return new ExpoLocalLlmModule.LLMSession(nativeConfig) as LLMSession;
 }
 

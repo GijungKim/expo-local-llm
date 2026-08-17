@@ -23,11 +23,19 @@ export type ToolParameter = {
   enum?: string[];
 };
 
+/**
+ * Arguments the model supplied for a tool call, parsed from the JSON it
+ * produced. The values are NOT validated against the tool's declared
+ * `parameters` — the model may omit fields, add extras, or use a different
+ * primitive type — so handlers should treat them as untrusted input.
+ */
+export type ToolArguments = Record<string, unknown>;
+
 export type ToolDefinition = {
   name: string;
   description: string;
   parameters: Record<string, ToolParameter>;
-  handler: (args: Record<string, any>) => Promise<string>;
+  handler: (args: ToolArguments) => Promise<string>;
 };
 
 export type ToolConfig = {
@@ -39,7 +47,7 @@ export type ToolConfig = {
 export type ToolCallEvent = {
   callId: string;
   toolName: string;
-  arguments: Record<string, any>;
+  arguments: ToolArguments;
 };
 
 export type ActiveToolCall = {

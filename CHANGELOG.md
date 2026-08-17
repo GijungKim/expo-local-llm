@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+**Breaking (types only):**
+
+- **Tool handler arguments are now `Record<string, unknown>`** (was `Record<string, any>`),
+  exported as `ToolArguments` and used by both `ToolDefinition["handler"]` and
+  `ToolCallEvent["arguments"]`. The model's arguments were never validated against the
+  declared `parameters` — the JSON it produces is passed through as-is — so `any` was
+  hiding that. Handlers that read `args.foo` as a string/number now need to narrow or cast;
+  template-literal usage (`` `...${args.city}` ``) is unaffected.
+
 ## 0.5.0
 
 Cancellation that actually cancels, promise-based stream completion, session reset, one-shot

@@ -37,6 +37,8 @@ type UseLocalLLMResult = {
 export function useLocalLLM(
   options: UseLocalLLMOptions = {}
 ): UseLocalLLMResult {
+  // SAFETY: native `getAvailability()` returns one of the `ModelAvailability`
+  // string literals; the bridge only types it as `string`.
   const [availability, setAvailability] = useState<ModelAvailability>(() =>
     ExpoLocalLlmModule
       ? (ExpoLocalLlmModule.getAvailability() as ModelAvailability)
