@@ -14,7 +14,9 @@
   "scripts": {
     "build": "expo-module build",
     "clean": "expo-module clean",
-    "lint": "expo-module lint",
+    "lint": "expo-module lint && oxlint .",
+    "lint:anti-slop": "oxlint .",
+    "knip": "knip --no-config-hints",
     "test": "expo-module test",
     "prepare": "chmod +x node_modules/expo-module-scripts/bin/expo-module-* 2>/dev/null || true",
     "prepublishOnly": "expo-module prepublishOnly",
@@ -43,10 +45,14 @@
   "license": "MIT",
   "homepage": "https://github.com/GijungKim/expo-local-llm#readme",
   "devDependencies": {
+    "@oxlint/plugins": "1.80.0",
     "@types/react": "~19.2.14",
     "expo": "^57.0.0",
     "expo-module-scripts": "^56.0.2",
+    "expo-modules-core": "~57.0.1",
     "jest-expo": "~57.0.1",
+    "knip": "6.33.0",
+    "oxlint": "1.80.0",
     "react-native": "0.86.2"
   },
   "jest": {

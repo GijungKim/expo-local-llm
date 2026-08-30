@@ -1,0 +1,27 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/index.ts",
+    "src/__tests__/**/*.test.ts",
+    "example/index.ts",
+    "example/babel.config.js",
+    "example/metro.config.js"
+  ],
+  "project": [
+    "src/**/*.ts",
+    "example/**/*.{js,ts,tsx}"
+  ],
+  "ignoreFiles": ["tools/oxlint/anti-slop/**"],
+  "ignoreDependencies": ["@oxlint/plugins"],
+  "ignoreBinaries": ["xed"],
+  "jest": {
+    "config": ["package.json"]
+  },
+  "include": [
+    "files",
+    "dependencies",
+    "devDependencies",
+    "unlisted",
+    "binaries"
+  ]
+}

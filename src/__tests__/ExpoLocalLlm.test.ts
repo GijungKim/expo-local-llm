@@ -22,17 +22,17 @@ describe("ExpoLocalLlm", () => {
   describe("exports", () => {
     it("exports LLMSession class", () => {
       expect(LLMSession).toBeDefined();
-      expect(typeof LLMSession).toBe("function");
+      expect(LLMSession).toEqual(expect.any(Function));
     });
 
     it("exports createLLMSession function", () => {
       expect(createLLMSession).toBeDefined();
-      expect(typeof createLLMSession).toBe("function");
+      expect(createLLMSession).toEqual(expect.any(Function));
     });
 
     it("exports generate function", () => {
       expect(generate).toBeDefined();
-      expect(typeof generate).toBe("function");
+      expect(generate).toEqual(expect.any(Function));
     });
 
     it("exports ExpoLocalLlmModule as null when native module is unavailable", () => {
@@ -70,7 +70,7 @@ describe("ExpoLocalLlm", () => {
         "unknown",
       ];
       expect(values).toHaveLength(7);
-      values.forEach((v) => expect(typeof v).toBe("string"));
+      values.forEach((value) => expect(value).toEqual(expect.any(String)));
     });
   });
 

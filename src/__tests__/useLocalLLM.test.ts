@@ -13,10 +13,6 @@ jest.mock("expo-modules-core", () => ({
   },
 }));
 
-jest.mock("react", () => ({
-  ...jest.requireActual("react"),
-}));
-
 describe("useLocalLLM prerequisites", () => {
   it("native module is null in test environment", () => {
     expect(ExpoLocalLlmModule).toBeNull();
@@ -25,6 +21,6 @@ describe("useLocalLLM prerequisites", () => {
   it("useLocalLLM can be imported", () => {
     const mod = require("../useLocalLLM");
     expect(mod.useLocalLLM).toBeDefined();
-    expect(typeof mod.useLocalLLM).toBe("function");
+    expect(mod.useLocalLLM).toEqual(expect.any(Function));
   });
 });
