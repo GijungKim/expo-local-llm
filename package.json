@@ -51,7 +51,7 @@
     "expo-module-scripts": "^56.0.2",
     "expo-modules-core": "~57.0.1",
     "jest-expo": "~57.0.1",
-    "knip": "6.34.0",
+    "knip": "6.35.1",
     "oxlint": "1.81.0",
     "react-native": "0.86.2"
   },
