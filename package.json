@@ -18,6 +18,7 @@
     "lint:anti-slop": "oxlint .",
     "knip": "knip --no-config-hints",
     "test": "expo-module test",
+    "test:anti-slop": "node --test tools/oxlint/anti-slop/anti-slop.cases.ts",
     "prepare": "chmod +x node_modules/expo-module-scripts/bin/expo-module-* 2>/dev/null || true",
     "prepublishOnly": "expo-module prepublishOnly",
     "expo-module": "expo-module",

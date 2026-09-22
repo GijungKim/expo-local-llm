@@ -38,6 +38,9 @@ jobs:
       - name: Lint
         run: bun run lint
 
+      - name: Test anti-slop rules
+        run: bun run test:anti-slop
+
       - name: Check dependencies
         run: bun run knip
 
