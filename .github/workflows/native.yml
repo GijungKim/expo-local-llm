@@ -44,7 +44,7 @@ jobs:
           # The Android toolchain in this Expo SDK supports JDK 17-21. JDK 24+
           # fails the NDK CMake configure step with JEP 472 restricted native
           # access, so the java-jdk major update is declined for now.
-          java-version: 21
+          java-version: 25
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
@@ -62,6 +62,10 @@ jobs:
         run: tools/native-check/prepare-example.sh android
 
       - name: Compile Android development app
+        env:
+          # Probe: opt in to native access so JEP 472 does not fail the NDK
+          # CMake configure step on JDK 24+.
+          JAVA_TOOL_OPTIONS: --enable-native-access=ALL-UNNAMED
         run: tools/native-check/android.sh
 
   ios:
