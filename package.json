@@ -38,7 +38,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/GijungKim/expo-local-llm"
+    "url": "git+https://github.com/GijungKim/expo-local-llm.git"
   },
   "bugs": {
     "url": "https://github.com/GijungKim/expo-local-llm/issues"

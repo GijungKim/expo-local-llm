@@ -15,6 +15,49 @@ Call `getModuleDiagnostics()` to inspect the native loader message and setup ins
 
 If the problem persists in a rebuilt app, inspect its native build and autolinking logs.
 
+## Device is not detected
+
+"The phone isn't visible to the dev tooling" and "the model isn't ready" look similar in an error dialog but have different causes. Start with what the tooling sees:
+
+```sh
+adb devices -l
+```
+
+| Output | Meaning | Fix |
+| --- | --- | --- |
+| empty list | adb sees no USB device at all | use a data-capable cable in a direct port; charge-only cables and unpowered hubs are the usual cause |
+| `unauthorized` | the phone is connected but this Mac hasn't been authorized | unlock the phone and accept the "Allow USB debugging?" prompt |
+| `device` | connected and authorized | the app still needs to reach Metro — see below |
+
+`adb devices` is the authoritative signal. `system_profiler SPUSBDataType` can report nothing even on a working connection when the shell is sandboxed, so do not treat it as evidence.
+
+If the phone never appears, confirm the device-side settings before blaming the cable:
+
+```sh
+adb shell settings get global development_settings_enabled   # 1 = Developer options enabled
+adb shell settings get global adb_enabled                    # 1 = USB debugging enabled
+```
+
+Two things that are commonly suspected but usually innocent:
+
+- **USB mode.** Charging-only does not block adb; `sys.usb.config` showing something like `sec_charging,adb` is sufficient.
+- **Re-authorization.** Once this machine's key is trusted (`~/.android/adbkey`), the phone will not prompt again even if USB debugging is toggled off and back on.
+
+If the device is `device` but the app reports a bundle or connection error, the app is not reaching Metro:
+
+```sh
+adb reverse tcp:8081 tcp:8081
+```
+
+`npx expo run:android --device` takes a **device name**, not an adb serial; passing the serial fails with "Could not find device with name". To target one device deterministically, build and install directly:
+
+```sh
+cd example/android
+ANDROID_SERIAL=<serial> ./gradlew :app:installDebug
+adb -s <serial> reverse tcp:8081 tcp:8081
+adb -s <serial> shell am start -n <applicationId>/.MainActivity
+```
+
 ## Model not ready
 
 | Availability | Meaning / next step |
