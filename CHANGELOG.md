@@ -21,6 +21,8 @@
 
 Overlapping requests on the same session now reject instead of replacing an active stream. After cancellation, await the original generation promise before starting another request.
 
+Android support is verified for build, module loading, device eligibility reporting, and unsupported-feature rejection. Text generation and streaming require a Gemini Nano–capable device and have not been validated against that hardware; JVM tests cover the library-side prompt assembly and history trimming instead.
+
 The updated hook requires native request-tagged events. Ship the JavaScript and native changes together in a rebuilt binary; do not deliver this hook update alone to older binaries through EAS Update.
 
 ## 0.6.0

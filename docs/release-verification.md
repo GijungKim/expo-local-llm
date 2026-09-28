@@ -47,7 +47,7 @@ For each release, record the package commit, Expo SDK, native SDK/toolchain, dev
 | --- | --- | --- |
 | Eligibility, disabled/not-ready model, and ready state | Ready (`available`) confirmed on simulator and iPhone 15 Pro. Disabled and not-ready states not exercised | Module loaded and reported `notEligible` on Galaxy A17; the app stayed usable |
 | Missing native module gives rebuild guidance | Pending | Pending |
-| Text response and streaming final text | Verified on simulator and iPhone 15 Pro (streamed text rendered, final text matched) | Pending |
+| Text response and streaming final text | Verified on simulator and iPhone 15 Pro (streamed text rendered, final text matched) | Not validated — no Gemini Nano device available; library-side prompt assembly is covered by JVM tests |
 | Cancel stops generation; next request succeeds and retains earlier completed turns | Cancel and next-request success verified on simulator; retention of earlier completed turns not explicitly exercised | Pending |
 | Overlapping requests rejected without corrupting history | Pending | Pending |
 | Reset during generation does not restore old history | Pending | Pending |

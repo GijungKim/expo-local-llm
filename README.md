@@ -9,7 +9,7 @@ Wraps Apple Foundation Models (iOS 26+) and Gemini Nano (Android). Inference sta
 | Platform | Requirement |
 |----------|-------------|
 | iOS | iOS 26+ with Apple Intelligence enabled. Loads on iOS 16.4+ without crashing (returns `notEligible`). Host project must target iOS 16.4+. |
-| Android | Host app uses `minSdkVersion` 26+. Inference requires a device supported by the configured Gemini Nano SDK. Model may require download. Android remains experimental until physical-device verification. |
+| Android | Host app uses `minSdkVersion` 26+. Inference requires a Gemini Nano–capable device; most Android devices, including most mid-range phones, report `notEligible`. Build, module loading, eligibility, and unsupported-feature handling are device-verified; generation is not yet validated on Gemini Nano hardware. |
 | Expo SDK | 52+ (peer range); the example targets SDK 57 / React Native 0.86. A peer range is not a tested compatibility matrix. |
 
 **A native development build is required. Stock Expo Go cannot load this module.** A simulator can compile the module and, when the host Mac has Apple Intelligence enabled and ready, run Apple Foundation Models for real inference; physical hardware is still needed for latency and thermal measurements. See the [release verification matrix](docs/release-verification.md).
@@ -383,7 +383,7 @@ Android readiness is checked asynchronously and may initially be `unknown`. Pref
 
 - Events belong to their session. Use a separate session for independent conversations.
 - A session accepts one generation at a time; overlapping requests reject. After cancellation, await the original generation promise before starting another request.
-- **Android**: Gemini Nano SDK is in beta. API surface may change — not yet validated on device.
+- **Android**: Gemini Nano SDK is in beta and its API surface may change. Build, module loading, eligibility, and unsupported-feature rejection are device-verified; generation has not been validated on Gemini Nano hardware.
 - **iOS**: Apple's Foundation Model may refuse certain categories of prompts (e.g. personal health data interpretation) due to built-in safety guardrails.
 - Generation methods (`respond`, `streamResponse`) require a session and `availability === 'available'`. Cancellation remains available while a session exists.
 - Tool calling is iOS 26+ only. Android will throw at session creation if tools are passed.
