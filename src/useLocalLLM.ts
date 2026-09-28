@@ -75,6 +75,11 @@ export function useLocalLLM(
   const [activeToolCalls, setActiveToolCalls] = useState<ActiveToolCall[]>([]);
   const activeRequestRef = useRef<ActiveRequest | null>(null);
   const lifecycleEpochRef = useRef(0);
+  // The session the creation effect currently owns. A config change runs the
+  // creation effect's cleanup — which releases the previous session — before
+  // this hook's listener effect runs its setup, so the render-time `session`
+  // value can already be released by then.
+  const sessionRef = useRef<LLMSession | null>(null);
 
   // Keep a ref to the current tool handlers so the event listener
   // always sees the latest handlers without needing to recreate the session.
@@ -137,12 +142,14 @@ export function useLocalLLM(
     let nextSession: LLMSession | null = null;
     try {
       nextSession = createLLMSession(stableConfig);
+      sessionRef.current = nextSession;
       // eslint-disable-next-line react-hooks/set-state-in-effect -- The native session is an effect-owned external resource; publishing it synchronously after acquisition prevents consumers from observing a not-yet-created handle.
       setCreationError(null);
       setIsGenerating(false);
       setActiveToolCalls([]);
       setSession(nextSession);
     } catch (e: any) {
+      sessionRef.current = null;
       setSession(null);
       setCreationError(e.message ?? "Failed to create LLM session");
     }
@@ -201,7 +208,10 @@ export function useLocalLLM(
     // check cannot be missed between the check and listener installation.
     refreshAvailability();
 
-    if (session) {
+    // Subscribe only when this render's session is still the object the creation
+    // effect owns. After a config change the render-time value is the previous,
+    // already-released session; subscribing to it throws on Android.
+    if (session && session === sessionRef.current) {
       const hasCurrentRequest = (requestId: string | undefined) => {
         const request = activeRequestRef.current;
         return (
