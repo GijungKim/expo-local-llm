@@ -80,7 +80,7 @@ enum FoundationModelBridge {
       sampling = .random(top: topK)
     }
     return FoundationModels.GenerationOptions(
-      sampling: sampling,
+      samplingMode: sampling,
       temperature: temperature,
       maximumResponseTokens: maxTokens
     )

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.0
 
 - Add capability discovery and actionable native-module setup diagnostics, separate from model readiness.
 - Add `generateObject()` with schema-inferred result types and runtime output validation.
@@ -14,6 +14,7 @@
 - Enable UIKit scene support in the example so it launches when built with Xcode 27, and document the app-level requirement.
 - Lock example dependencies and restore the lint baseline with an ESLint version supported by the existing import plugin.
 - Clarify development-build requirements, Expo Modules integration, and platform-specific guarantees.
+- Remove dead optional-coalescing fallbacks in native exceptions and use Apple's non-deprecated generation options initializer.
 
 **Migration notes:** missing native code is reported as `moduleUnavailable`, not `notEligible`. Handle the new availability value in exhaustive switches. Explicit JSON mode requires a schema. One-shot helpers reject tools; use `useLocalLLM()` for automatic tool dispatch. Rebuild your native app to pick up native changes. Check capabilities before requesting platform-specific features.
 
