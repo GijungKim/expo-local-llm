@@ -12,9 +12,28 @@ Wraps Apple Foundation Models (iOS 26+) and Gemini Nano (Android). Inference sta
 | Android | Host app uses `minSdkVersion` 26+. Inference requires a device supported by the configured Gemini Nano SDK. Model may require download. Android remains experimental until physical-device verification. |
 | Expo SDK | 52+ (peer range); the example targets SDK 57 / React Native 0.86. A peer range is not a tested compatibility matrix. |
 
-**A native development build is required. Stock Expo Go cannot load this module.** Simulator builds can verify compilation, but do not establish that on-device inference works. See the [release verification matrix](docs/release-verification.md).
+**A native development build is required. Stock Expo Go cannot load this module.** A simulator can compile the module and, when the host Mac has Apple Intelligence enabled and ready, run Apple Foundation Models for real inference; physical hardware is still needed for latency and thermal measurements. See the [release verification matrix](docs/release-verification.md).
 
 For setup failures, unavailable models, and unsupported features, see [troubleshooting](docs/troubleshooting.md).
+
+### Xcode 27 requires scene support
+
+Apps built with the iOS 27 SDK must adopt the UIKit scene lifecycle, or UIKit stops them at launch before any JavaScript runs. Expo SDK 57 apps opt in through `expo-build-properties` (Expo `57.0.23`+, `expo-build-properties` `57.0.20`+):
+
+```json
+{
+  "expo": {
+    "plugins": [
+      [
+        "expo-build-properties",
+        { "ios": { "deploymentTarget": "16.4", "enableSceneSupport": true } }
+      ]
+    ]
+  }
+}
+```
+
+Then regenerate and rebuild the native app. This is an app-level build setting, not something this library can enable for you.
 
 ## Installation
 

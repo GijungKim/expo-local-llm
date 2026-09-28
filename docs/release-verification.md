@@ -7,6 +7,8 @@ Native compilation and physical-device inference are separate release criteria. 
 - The example targets Expo SDK 57 / React Native 0.86.
 - The package's Expo `>=52` peer range describes dependency acceptance, not a promise that every SDK/toolchain combination has been tested.
 - The SDK 57 example requires Xcode 26.4+ with the Foundation Models SDK. The deployment floor is iOS 16.4; inference requires eligible iOS 26+ hardware and Apple Intelligence enabled.
+- Building with Xcode 27 requires `ios.enableSceneSupport: true` (see the [Xcode 27 note](../README.md#xcode-27-requires-scene-support)). Without it UIKit stops the app at launch before JavaScript runs, which is a launch-time failure the compile-only native job cannot detect.
+- Apple Foundation Models can run in the iPhone simulator when the host Mac has Apple Intelligence enabled and ready. Physical hardware is still required for latency, memory, and thermal measurements.
 - Android requires `minSdkVersion` 26+ and remains experimental. Device eligibility must be checked at runtime; a device marketing name alone is not proof of SDK support.
 
 ## Local checks

@@ -11,6 +11,7 @@
 - Tag native generation events with request identifiers so queued output and tool calls cannot update a newer hook request after reset.
 - Add native compilation checks and a physical-device release verification checklist.
 - Specify the Apple podspec path explicitly so local file-dependency installs are autolinked reliably.
+- Enable UIKit scene support in the example so it launches when built with Xcode 27, and document the app-level requirement.
 - Lock example dependencies and restore the lint baseline with an ESLint version supported by the existing import plugin.
 - Clarify development-build requirements, Expo Modules integration, and platform-specific guarantees.
 
