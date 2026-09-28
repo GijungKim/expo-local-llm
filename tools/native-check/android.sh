@@ -13,7 +13,12 @@ cd "$root/example/android"
 readonly gradle_log="$(mktemp "${TMPDIR:-/tmp}/expo-local-llm-gradle.XXXXXX")"
 trap 'rm -f "$gradle_log"' EXIT
 
-./gradlew projects :expo-local-llm:compileDebugKotlin :expo-local-llm:testDebugUnitTest :app:assembleDebug \
+# JDK 24+ restricts native access (JEP 472). Gradle's CMake configure step calls
+# a restricted method, and the resulting JVM warning fails the build unless
+# native access is explicitly enabled. Scoped to the Gradle invocation so the
+# opt-in does not leak into unrelated JVMs.
+JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:+$JAVA_TOOL_OPTIONS }--enable-native-access=ALL-UNNAMED" \
+  ./gradlew projects :expo-local-llm:compileDebugKotlin :expo-local-llm:testDebugUnitTest :app:assembleDebug \
   --no-daemon \
   --stacktrace \
   --console=plain \
