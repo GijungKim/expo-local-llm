@@ -1,80 +1,222 @@
 package expo.modules.localllm
 
-import android.content.Context
-import com.google.ai.edge.localagent.GenerativeModel
-import com.google.ai.edge.localagent.GenerationConfig
-import com.google.ai.edge.localagent.LocalAgent
+import com.google.mlkit.genai.common.DownloadStatus
+import com.google.mlkit.genai.common.FeatureStatus
+import com.google.mlkit.genai.prompt.GenerateContentRequest
+import com.google.mlkit.genai.prompt.Generation
+import com.google.mlkit.genai.prompt.GenerativeModel
+import com.google.mlkit.genai.prompt.TextPart
 import expo.modules.kotlin.sharedobjects.SharedObject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import java.util.UUID
 
 class LLMSession(
-  private val context: Context,
   config: SessionConfig
 ) : SharedObject() {
+  private enum class GenerationKind { RESPOND, STREAM }
+
+  private class ActiveGeneration(
+    val kind: GenerationKind,
+    val requestId: String
+  ) {
+    var acceptsOutput = true
+    var job: Job? = null
+  }
+
   private val history = ConversationHistory(config.instructions)
   private val temperature = config.options?.temperature
   private val maxTokens = config.options?.maxTokens
   private val topK = config.options?.topK
+  private val stateLock = Any()
+  private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
   private var model: GenerativeModel? = null
-  private var streamJob: Job? = null
-  private val scope = CoroutineScope(Dispatchers.Main)
+  private var activeGeneration: ActiveGeneration? = null
+  private var modelResetPending = false
+  private var disposed = false
 
   companion object {
-    fun checkAvailability(context: Context): ModelAvailability {
-      return try {
-        val status = LocalAgent.getFeatureStatus(context)
-        when {
-          status.isAvailable -> ModelAvailability.available
-          status.isDownloading -> ModelAvailability.downloading
-          status.isDownloadRequired -> ModelAvailability.downloadRequired
-          else -> ModelAvailability.notEligible
+    @Volatile
+    private var cachedAvailability = ModelAvailability.unknown
+    private val availabilityMutex = Mutex()
+
+    fun getCachedAvailability(): ModelAvailability = cachedAvailability
+
+    suspend fun refreshAvailability(): ModelAvailability = availabilityMutex.withLock {
+      var client: GenerativeModel? = null
+      val availability = try {
+        val activeClient = Generation.getClient().also { client = it }
+        when (activeClient.checkStatus()) {
+          FeatureStatus.AVAILABLE -> ModelAvailability.available
+          FeatureStatus.DOWNLOADING -> ModelAvailability.downloading
+          FeatureStatus.DOWNLOADABLE -> ModelAvailability.downloadRequired
+          FeatureStatus.UNAVAILABLE -> ModelAvailability.notEligible
+          else -> ModelAvailability.unknown
         }
+      } catch (e: CancellationException) {
+        throw e
       } catch (e: Exception) {
-        ModelAvailability.notEligible
+        // SDK/API failures do not prove that the device is ineligible.
+        ModelAvailability.unknown
+      } finally {
+        // Generation.getClient() creates an independent engine-backed client.
+        client?.close()
       }
+      cachedAvailability = availability
+      availability
     }
 
-    suspend fun downloadModel(context: Context, onProgress: (Float) -> Unit) {
+    suspend fun downloadModel(onProgress: (Float) -> Unit) = availabilityMutex.withLock {
+      var client: GenerativeModel? = null
       try {
-        // TODO: ML Kit GenAI download API may provide progress callbacks
-        // once the SDK stabilizes. For now, report start/complete.
+        val activeClient = Generation.getClient().also { client = it }
         onProgress(0f)
-        LocalAgent.downloadModel(context)
-        onProgress(1f)
+        cachedAvailability = ModelAvailability.downloading
+        var bytesToDownload: Long? = null
+        activeClient.download().collect { status ->
+          when (status) {
+            is DownloadStatus.DownloadStarted -> bytesToDownload = status.bytesToDownload
+            is DownloadStatus.DownloadProgress -> {
+              bytesToDownload?.takeIf { it > 0 }?.let { total ->
+                onProgress((status.totalBytesDownloaded.toFloat() / total).coerceIn(0f, 1f))
+              }
+            }
+            DownloadStatus.DownloadCompleted -> onProgress(1f)
+            is DownloadStatus.DownloadFailed -> {
+              throw StreamException("Failed to download model: ${status.e.message}")
+            }
+          }
+        }
+      } catch (e: CancellationException) {
+        throw e
+      } catch (e: StreamException) {
+        throw e
       } catch (e: Exception) {
         throw StreamException("Failed to download model: ${e.message}")
+      } finally {
+        client?.close()
       }
     }
   }
 
-  private suspend fun getOrCreateModel(): GenerativeModel {
-    if (model == null) {
-      val configBuilder = GenerationConfig.Builder()
-      temperature?.let { configBuilder.temperature = it }
-      maxTokens?.let { configBuilder.maxOutputTokens = it.coerceAtMost(256) }
-      topK?.let { configBuilder.topK = it }
-
-      model = LocalAgent.createGenerativeModel(
-        context = context,
-        generationConfig = configBuilder.build()
-      )
+  private fun beginGeneration(kind: GenerationKind, requestId: String?): ActiveGeneration = synchronized(stateLock) {
+    if (disposed) {
+      throw SessionInvalidException()
     }
-    return model!!
+    if (activeGeneration != null) {
+      throw SessionBusyException()
+    }
+    ActiveGeneration(kind, requestId ?: UUID.randomUUID().toString()).also { activeGeneration = it }
   }
 
-  suspend fun respond(prompt: String): String {
-    val genModel = getOrCreateModel()
-    history.addUserMessage(prompt)
-    val fullPrompt = history.buildPrompt()
-    val response = genModel.generateContent(fullPrompt)
-    val text = response.text ?: ""
-    history.addAssistantMessage(text)
-    return text
+  private fun attachJob(generation: ActiveGeneration, job: Job) {
+    val shouldCancel = synchronized(stateLock) {
+      generation.job = job
+      activeGeneration !== generation || !generation.acceptsOutput
+    }
+    if (shouldCancel) {
+      job.cancel()
+    }
+  }
+
+  private fun finishGeneration(generation: ActiveGeneration) {
+    val oldModel = synchronized(stateLock) {
+      if (activeGeneration === generation) {
+        activeGeneration = null
+        if (modelResetPending) {
+          modelResetPending = false
+          model.also { model = null }
+        } else {
+          null
+        }
+      } else {
+        null
+      }
+    }
+    oldModel?.close()
+  }
+
+  private fun invalidateGeneration(generation: ActiveGeneration): Job? = synchronized(stateLock) {
+    if (activeGeneration === generation) {
+      generation.acceptsOutput = false
+    }
+    generation.job
+  }
+
+  private fun createRequest(prompt: String): GenerateContentRequest =
+    GenerateContentRequest.Builder(TextPart(prompt)).apply {
+      temperature = this@LLMSession.temperature
+      maxOutputTokens = this@LLMSession.maxTokens
+      topK = this@LLMSession.topK
+    }.build()
+
+  private fun getOrCreateModel(generation: ActiveGeneration): GenerativeModel =
+    synchronized(stateLock) {
+      if (!isCurrentLocked(generation)) {
+        throw CancellationException("Generation was cancelled")
+      }
+      model ?: Generation.getClient().also { model = it }
+    }
+
+  private fun isCurrentLocked(generation: ActiveGeneration): Boolean =
+    activeGeneration === generation && generation.acceptsOutput
+
+  suspend fun respond(prompt: String, requestId: String? = null): String {
+    val generation = beginGeneration(GenerationKind.RESPOND, requestId)
+    val completion = CompletableDeferred<String>()
+    val job = scope.launch(start = CoroutineStart.LAZY) {
+      try {
+        val fullPrompt = synchronized(stateLock) {
+          if (!isCurrentLocked(generation)) {
+            throw CancellationException("Generation was cancelled")
+          }
+          history.buildPrompt(addingUserMessage = prompt)
+        }
+        val response = getOrCreateModel(generation).generateContent(createRequest(fullPrompt))
+        val text = response.candidates.firstOrNull()?.text.orEmpty()
+        synchronized(stateLock) {
+          if (!isCurrentLocked(generation)) {
+            throw CancellationException("Generation was cancelled")
+          }
+          history.addExchange(prompt, text)
+        }
+        completion.complete(text)
+      } catch (error: Throwable) {
+        completion.completeExceptionally(error)
+      }
+    }
+    job.invokeOnCompletion { error ->
+      if (!completion.isCompleted) {
+        completion.completeExceptionally(error ?: CancellationException("Generation ended without a result"))
+      }
+    }
+    attachJob(generation, job)
+    job.start()
+
+    return try {
+      job.join()
+      completion.await()
+    } finally {
+      withContext(NonCancellable) {
+        if (!job.isCompleted) {
+          invalidateGeneration(generation)?.cancel()
+        }
+        job.cancelAndJoin()
+        finishGeneration(generation)
+      }
+    }
   }
 
   /**
@@ -83,66 +225,144 @@ class LLMSession(
    * produced so far if the stream is cancelled. Emits `streamComplete` only
    * on natural completion, `streamError` on failure.
    */
-  suspend fun streamResponse(prompt: String): String {
-    streamJob?.cancel()
-    history.addUserMessage(prompt)
-    val fullPrompt = history.buildPrompt()
-
-    var accumulated = ""
-    var failure: Exception? = null
-    var completed = false
-    val job = scope.launch {
+  suspend fun streamResponse(prompt: String, requestId: String? = null): String {
+    val generation = beginGeneration(GenerationKind.STREAM, requestId)
+    val completion = CompletableDeferred<String>()
+    val job = scope.launch(start = CoroutineStart.LAZY) {
+      var accumulated = ""
       try {
-        val genModel = getOrCreateModel()
-        genModel.generateContentStream(fullPrompt).collect { chunk ->
-          val token = chunk.text ?: ""
-          accumulated += token
-          emit("token", mapOf(
-            "token" to token,
-            "accumulated" to accumulated
-          ))
+        val fullPrompt = synchronized(stateLock) {
+          if (!isCurrentLocked(generation)) {
+            throw CancellationException("Generation was cancelled")
+          }
+          history.buildPrompt(addingUserMessage = prompt)
         }
-        completed = true
-      } catch (e: CancellationException) {
-        // User-initiated cancellation — not an error
-        throw e
-      } catch (e: Exception) {
-        failure = e
-        emit("streamError", mapOf("error" to (e.message ?: "Unknown error")))
+        getOrCreateModel(generation).generateContentStream(createRequest(fullPrompt)).collect { chunk ->
+          val token = chunk.candidates.firstOrNull()?.text.orEmpty()
+          synchronized(stateLock) {
+            if (!isCurrentLocked(generation)) {
+              throw CancellationException("Generation was cancelled")
+            }
+            accumulated += token
+            emit("token", mapOf(
+              "token" to token,
+              "accumulated" to accumulated,
+              "requestId" to generation.requestId
+            ))
+          }
+        }
+
+        synchronized(stateLock) {
+          if (isCurrentLocked(generation)) {
+            history.addExchange(prompt, accumulated)
+            emit("streamComplete", mapOf(
+              "text" to accumulated,
+              "requestId" to generation.requestId
+            ))
+          }
+        }
+        completion.complete(accumulated)
+      } catch (error: CancellationException) {
+        completion.complete(accumulated)
+      } catch (error: Exception) {
+        synchronized(stateLock) {
+          if (isCurrentLocked(generation)) {
+            emit("streamError", mapOf(
+              "error" to (error.message ?: "Unknown error"),
+              "requestId" to generation.requestId
+            ))
+          }
+        }
+        completion.completeExceptionally(StreamException(error.message ?: "Unknown error"))
       }
     }
-    streamJob = job
-    job.join()
+    job.invokeOnCompletion { error ->
+      if (!completion.isCompleted) {
+        if (error is CancellationException) {
+          completion.complete("")
+        } else {
+          completion.completeExceptionally(error ?: StreamException("Stream ended without a result"))
+        }
+      }
+    }
+    attachJob(generation, job)
+    job.start()
 
-    failure?.let { throw StreamException(it.message ?: "Unknown error") }
-    if (accumulated.isNotEmpty()) {
-      history.addAssistantMessage(accumulated)
+    return try {
+      job.join()
+      completion.await()
+    } finally {
+      withContext(NonCancellable) {
+        if (!job.isCompleted) {
+          invalidateGeneration(generation)?.cancel()
+        }
+        job.cancelAndJoin()
+        finishGeneration(generation)
+      }
     }
-    if (completed) {
-      emit("streamComplete", mapOf("text" to accumulated))
-    }
-    return accumulated
   }
 
   fun cancelStream() {
-    streamJob?.cancel()
-    streamJob = null
+    val job = synchronized(stateLock) {
+      activeGeneration
+        ?.takeIf { it.kind == GenerationKind.STREAM }
+        ?.also { it.acceptsOutput = false }
+        ?.job
+    }
+    job?.cancel()
   }
 
   /**
    * Clear the conversation history (keeps instructions and generation
-   * options). Cancels any in-flight stream.
+   * options). Cancels any in-flight generation.
    */
   fun reset() {
-    streamJob?.cancel()
-    streamJob = null
-    history.clear()
+    val (job, oldModel) = synchronized(stateLock) {
+      if (disposed) {
+        throw SessionInvalidException()
+      }
+      val generation = activeGeneration
+      generation?.acceptsOutput = false
+      history.clear()
+      if (generation == null) {
+        modelResetPending = false
+        null to model.also { model = null }
+      } else {
+        // Keep the busy slot and current client until its producer has fully
+        // stopped. finishGeneration closes it before another turn can start.
+        modelResetPending = true
+        generation.job to null
+      }
+    }
+    job?.cancel()
+    oldModel?.close()
   }
 
-  override fun deallocate() {
-    super.deallocate()
-    streamJob?.cancel()
-    model = null
+  override fun sharedObjectDidRelease() {
+    var shouldRelease = false
+    val (job, oldModel) = synchronized(stateLock) {
+      if (disposed) {
+        null to null
+      } else {
+        shouldRelease = true
+        disposed = true
+        val generation = activeGeneration
+        generation?.acceptsOutput = false
+        if (generation == null) {
+          modelResetPending = false
+          null to model.also { model = null }
+        } else {
+          // Do not close an engine-backed client while its producer is still
+          // unwinding. The request's non-cancellable finally block owns close.
+          modelResetPending = true
+          generation.job to null
+        }
+      }
+    }
+    if (!shouldRelease) return
+    job?.cancel()
+    oldModel?.close()
     scope.cancel()
+    super.sharedObjectDidRelease()
   }
 }

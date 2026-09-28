@@ -18,6 +18,16 @@ class StreamException: GenericException<String> {
   }
 }
 
+class SessionBusyException: Exception {
+  override var code: String {
+    "ERR_SESSION_BUSY"
+  }
+
+  override var reason: String {
+    "This LLM session already has a generation in progress"
+  }
+}
+
 class ToolTimeoutException: Exception {
   override var reason: String {
     "Tool call timed out waiting for JavaScript response"

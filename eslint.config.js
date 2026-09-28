@@ -5,7 +5,7 @@ const baseConfig = require(path.join(
   'eslint.config.base.cjs'
 ));
 
-// Override react plugin settings to avoid getFilename compatibility issue with ESLint 10
+// Avoid React auto-detection calling rule-context APIs removed by flat ESLint.
 module.exports = baseConfig.map((config) => {
   if (config.settings?.react) {
     return {

@@ -1,5 +1,6 @@
 export type ModelAvailability =
   | "available"
+  | "moduleUnavailable"
   | "notEnabled"
   | "notReady"
   | "notEligible"
@@ -45,6 +46,7 @@ export type ToolConfig = {
 };
 
 export type ToolCallEvent = {
+  requestId?: string;
   callId: string;
   toolName: string;
   arguments: ToolArguments;
@@ -60,7 +62,7 @@ export type ActiveToolCall = {
 export type ResponseFormat = "text" | "json";
 
 export type SchemaField =
-  | { type: "string"; description?: string; enum?: string[] }
+  | { type: "string"; description?: string; enum?: readonly string[] }
   | { type: "number" | "integer" | "boolean"; description?: string }
   | { type: "array"; description?: string; items: SchemaField }
   | {
@@ -70,6 +72,68 @@ export type SchemaField =
     };
 
 export type Schema = Record<string, SchemaField>;
+
+export type InferSchemaField<Field extends SchemaField> = Field extends {
+  type: "string";
+  enum: readonly (infer Value extends string)[];
+}
+  ? Value
+  : Field extends { type: "string" }
+  ? string
+  : Field extends { type: "number" | "integer" }
+  ? number
+  : Field extends { type: "boolean" }
+  ? boolean
+  : Field extends { type: "array"; items: infer Item extends SchemaField }
+  ? InferSchemaField<Item>[]
+  : Field extends {
+      type: "object";
+      properties: infer Properties extends Schema;
+    }
+  ? InferSchema<Properties>
+  : never;
+
+export type InferSchema<Definition extends Schema> = {
+  -readonly [Key in keyof Definition]: InferSchemaField<Definition[Key]>;
+};
+
+export type GenerateObjectConfig<Definition extends Schema> = Omit<
+  SessionConfig,
+  "responseFormat" | "schema" | "tools"
+> & {
+  schema: Definition;
+  /** One-shot helpers cannot service native tool-call events. */
+  tools?: never;
+};
+
+export type NativeModuleDiagnostics =
+  | {
+      available: true;
+      reason: null;
+      message: null;
+      setupInstructions: readonly [];
+    }
+  | {
+      available: false;
+      reason: "moduleUnavailable";
+      message: string;
+      setupInstructions: readonly string[];
+    };
+
+export type LocalLLMCapabilities = {
+  platform: "ios" | "android" | "unsupported";
+  backend: "appleFoundationModels" | "geminiNano" | null;
+  status:
+    | "available"
+    | "moduleUnavailable"
+    | "unsupportedOS"
+    | "unsupportedPlatform";
+  text: boolean;
+  streaming: boolean;
+  tools: boolean;
+  structuredOutput: boolean;
+  structuredOutputMode: "constrained" | "unsupported";
+};
 
 export type SessionConfig = {
   instructions?: string;
@@ -82,20 +146,24 @@ export type SessionConfig = {
 };
 
 export type TokenEvent = {
+  requestId?: string;
   token: string;
   accumulated: string;
 };
 
 export type StreamCompleteEvent = {
+  requestId?: string;
   text: string;
 };
 
 export type PartialEvent = {
+  requestId?: string;
   json: string;
   complete: boolean;
 };
 
 export type StreamErrorEvent = {
+  requestId?: string;
   error: string;
 };
 

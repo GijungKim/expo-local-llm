@@ -1,4 +1,8 @@
-import { validateSchema, SchemaInvalidError } from "../validateSchema";
+import {
+  validateSchema,
+  validateStructuredOutput,
+  SchemaInvalidError,
+} from "../validateSchema";
 
 describe("validateSchema", () => {
   describe("root", () => {
@@ -216,5 +220,94 @@ describe("SchemaInvalidError", () => {
     expect(err.errors).toHaveLength(2);
     expect(err.message).toContain("x: bad");
     expect(err.message).toContain("y.items: worse");
+  });
+});
+
+describe("validateStructuredOutput", () => {
+  const schema = {
+    title: { type: "string" as const },
+    count: { type: "integer" as const },
+    kind: { type: "string" as const, enum: ["a", "b"] as const },
+    nested: {
+      type: "object" as const,
+      properties: {
+        values: {
+          type: "array" as const,
+          items: { type: "number" as const },
+        },
+      },
+    },
+  };
+
+  it("validates nested values, integer fields, arrays, and enums", () => {
+    expect(
+      validateStructuredOutput(
+        { title: "ok", count: 2, kind: "a", nested: { values: [1, 2.5] } },
+        schema
+      )
+    ).toEqual({ ok: true });
+  });
+
+  it("reports nested mismatches, missing fields, and unexpected fields", () => {
+    const result = validateStructuredOutput(
+      {
+        title: "ok",
+        count: 2.5,
+        kind: "c",
+        nested: { values: [1, "bad"], extra: true },
+      },
+      schema
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.map(({ path }) => path)).toEqual(
+        expect.arrayContaining([
+          "$.count",
+          "$.kind",
+          "$.nested.values[1]",
+          "$.nested.extra",
+        ])
+      );
+    }
+  });
+
+  it("rejects missing entries in sparse arrays", () => {
+    const values = [1];
+    values.length = 2;
+    expect(
+      validateStructuredOutput(
+        { values },
+        { values: { type: "array", items: { type: "number" } } }
+      )
+    ).toEqual({
+      ok: false,
+      errors: [{ path: "$.values[1]", message: "expected finite number" }],
+    });
+  });
+
+  it("does not let inherited names satisfy or bypass property checks", () => {
+    const extraConstructor = validateStructuredOutput(
+      JSON.parse('{"name":"ok","constructor":"unexpected"}'),
+      { name: { type: "string" } }
+    );
+    expect(extraConstructor.ok).toBe(false);
+    if (!extraConstructor.ok) {
+      expect(extraConstructor.errors).toContainEqual({
+        path: "$.constructor",
+        message: "unexpected property",
+      });
+    }
+
+    const missingConstructor = validateStructuredOutput(
+      JSON.parse("{}"),
+      JSON.parse('{"constructor":{"type":"string"}}')
+    );
+    expect(missingConstructor.ok).toBe(false);
+    if (!missingConstructor.ok) {
+      expect(missingConstructor.errors).toContainEqual({
+        path: "$.constructor",
+        message: "required property is missing",
+      });
+    }
   });
 });

@@ -1,22 +1,28 @@
 # expo-local-llm
 
-Expo module for on-device LLM inference. Wraps Apple Foundation Models (iOS 26+) and Gemini Nano via ML Kit (Android).
+On-device intelligence for Expo apps, using the models provided by the operating system. Generate text, extract structured data, and build streaming interfaces without distributing model weights or writing native code.
+
+Wraps Apple Foundation Models (iOS 26+) and Gemini Nano (Android). Inference stays on device; any network access inside your tool handlers is controlled by your app. There is no automatic cloud fallback.
 
 ## Platform Requirements
 
 | Platform | Requirement |
 |----------|-------------|
 | iOS | iOS 26+ with Apple Intelligence enabled. Loads on iOS 16.4+ without crashing (returns `notEligible`). Host project must target iOS 16.4+. |
-| Android | Device with Gemini Nano support (Pixel 8+, Galaxy S25+). Model may require download. |
-| Expo SDK | 52+ (peer requirement). Tested against SDK 56 and SDK 57 (React Native 0.86). |
+| Android | Host app uses `minSdkVersion` 26+. Inference requires a device supported by the configured Gemini Nano SDK. Model may require download. Android remains experimental until physical-device verification. |
+| Expo SDK | 52+ (peer range); the example targets SDK 57 / React Native 0.86. A peer range is not a tested compatibility matrix. |
+
+**A native development build is required. Stock Expo Go cannot load this module.** Simulator builds can verify compilation, but do not establish that on-device inference works. See the [release verification matrix](docs/release-verification.md).
+
+For setup failures, unavailable models, and unsupported features, see [troubleshooting](docs/troubleshooting.md).
 
 ## Installation
 
 ```bash
-npm install expo-local-llm
+npx expo install expo-local-llm expo-dev-client
 ```
 
-This module requires **iOS 16.4+** as a compile target. Expo SDK 56+ defaults to 16.4 (the same as the module's floor), but if you're on an older SDK or have customized the deployment target, raise it via [`expo-build-properties`](https://docs.expo.dev/versions/latest/sdk/build-properties/):
+This module requires **iOS 16.4+** and **Android API 26+** deployment targets. If your app targets an earlier version, raise the relevant target via [`expo-build-properties`](https://docs.expo.dev/versions/latest/sdk/build-properties/):
 
 ```bash
 npx expo install expo-build-properties
@@ -30,24 +36,58 @@ In `app.json`, add the plugin with the deployment target:
     "plugins": [
       [
         "expo-build-properties",
-        { "ios": { "deploymentTarget": "16.4" } }
+        {
+          "ios": { "deploymentTarget": "16.4" },
+          "android": { "minSdkVersion": 26 }
+        }
       ]
     ]
   }
 }
 ```
 
-Then prebuild:
+Build and install your development app on a supported physical device:
 
 ```bash
-npx expo prebuild --clean
+npx expo run:ios --device
+# or
+npx expo run:android --device
 ```
 
 > If your project targets an iOS version below 16.4, you'll hit `compiling for iOS X.Y, but module 'ExpoLocalLlm' has a minimum deployment target of iOS 16.4` at build time. (Apple Intelligence itself still requires iOS 26+ at runtime — the 16.4 floor is just for compilation; the module returns `notEligible` on iOS 16.4–25.)
 
+The iOS native build requires an Xcode SDK containing Foundation Models; the SDK 57 example requires Xcode 26.4 or newer. `expo run` generates native projects if they do not exist. For projects using Continuous Native Generation, regenerate and rebuild after changing native dependencies or native app configuration. Keep custom native changes in config plugins before using `prebuild --clean`.
+
+EAS Build is also supported as a build workflow: use a development profile with a compatible native toolchain. Installing this package or upgrading its native implementation requires a new binary; EAS Update cannot add native code. JavaScript-only changes can use the existing binary when they remain compatible with its native API.
+
 ## Usage
 
+### Extract typed data (iOS 26+)
+
+For classification and extraction, use `generateObject()`. It infers the result type from your schema and validates the generated JSON before returning it:
+
+```ts
+import { generateObject, getCapabilities } from 'expo-local-llm';
+
+const capabilities = getCapabilities();
+// Capability support and current model readiness are separate checks.
+if (capabilities.structuredOutputMode === 'constrained') {
+  const result = await generateObject('Classify: "Can we move the meeting to Friday?"', {
+    instructions: 'Classify the message by its primary intent.',
+    schema: {
+      intent: { type: 'string', enum: ['scheduling', 'question', 'other'] },
+    },
+  });
+  // result.intent: 'scheduling' | 'question' | 'other'
+}
+```
+
+Handle rejected requests in your app: supported capabilities do not imply that the model is downloaded, enabled, or ready. `generateObject()` rejects invalid JSON or schema mismatches with `StructuredOutputValidationError`; it never repairs output silently or falls back to cloud inference.
+
+### Stream text in a component
+
 ```tsx
+import { Text, View } from 'react-native';
 import { useLocalLLM } from 'expo-local-llm';
 
 function Chat() {
@@ -65,9 +105,15 @@ function Chat() {
     instructions: 'You are a helpful assistant.',
   });
 
-  // Methods are undefined when module is unavailable (optionality pattern)
+  // Methods become available after session creation and model readiness.
   if (!streamResponse) {
-    return <Text>On-device LLM not available</Text>;
+    return (
+      <Text>
+        {error ?? (availability === 'available'
+          ? 'Preparing on-device AI...'
+          : `On-device AI: ${availability}`)}
+      </Text>
+    );
   }
 
   const handleSend = async (prompt: string) => {
@@ -103,7 +149,8 @@ function WeatherChat() {
           city: { type: 'string', description: 'The city name' },
         },
         handler: async (args) => {
-          const res = await fetch(`https://api.example.com/weather?city=${args.city}`);
+          if (typeof args.city !== 'string') throw new Error('city must be a string');
+          const res = await fetch(`https://api.example.com/weather?city=${encodeURIComponent(args.city)}`);
           return JSON.stringify(await res.json());
         },
       },
@@ -123,9 +170,9 @@ function WeatherChat() {
 
 ### Structured Output
 
-iOS 26+ uses Apple's constrained decoding (`DynamicGenerationSchema`) — output is guaranteed to be
-a structurally-valid JSON object matching the schema. Android falls back to instruction-based
-guidance.
+iOS 26+ uses Apple's constrained decoding (`DynamicGenerationSchema`) for schema-driven output.
+Successful generation produces structured JSON; requests can still fail or be refused.
+Android structured output is unsupported and rejected explicitly, rather than silently generating ordinary text.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/GijungKim/expo-local-llm/main/docs/structured-output.png" alt="Structured output demo — recipe JSON with constrained 'difficulty' enum on iPhone" width="320" />
@@ -155,7 +202,9 @@ const { respond } = useLocalLLM({
   },
 });
 
-const recipe = JSON.parse(await respond('Give me a pasta recipe'));
+if (respond) {
+  const recipe = JSON.parse(await respond('Give me a pasta recipe'));
+}
 ```
 
 For one-shot structured calls (classification, extraction) where you don't want conversation
@@ -180,7 +229,7 @@ const { streamResponse, streamedObject } = useLocalLLM({
   schema: { /* ... */ },
 });
 
-await streamResponse('Give me a pasta recipe');
+await streamResponse?.('Give me a pasta recipe');
 // streamedObject updates as the model fills in fields
 ```
 
@@ -203,6 +252,29 @@ if (!result.ok) {
 
 ## API
 
+### `getCapabilities()`
+
+Reports which features the loaded platform integration implements. Use this to decide whether to offer text, streaming, tools, or structured output. Check model availability separately before starting generation. A supported capability does not mean the OS model is currently ready.
+
+The function does not download models, start inference, or opt the app into a cloud service.
+
+Returns `platform`, `backend`, `status`, boolean `text`/`streaming`/`tools`/`structuredOutput` flags, and `structuredOutputMode` (`'constrained'` or `'unsupported'`).
+
+Capability `status` is `'available'`, `'moduleUnavailable'`, `'unsupportedOS'`, or `'unsupportedPlatform'`. Here `'available'` means the integration is supported; use the hook's `availability` for current model readiness.
+
+### `getModuleDiagnostics()`
+
+Reports whether native code loaded, with `available`, `reason`, `message`, and `setupInstructions`. A missing module is a build/setup problem, distinct from a device that cannot run the model.
+
+```ts
+import { getModuleDiagnostics } from 'expo-local-llm';
+
+const diagnostics = getModuleDiagnostics();
+if (!diagnostics.available) {
+  console.warn(diagnostics.message);
+}
+```
+
 ### `useLocalLLM(options?)`
 
 #### Options
@@ -211,11 +283,11 @@ if (!result.ok) {
 |--------|------|-------------|
 | `instructions` | `string` | System instructions for the session |
 | `options.temperature` | `number` | Sampling temperature |
-| `options.maxTokens` | `number` | Max output tokens (capped at 256 on Android; maps to `maximumResponseTokens` on iOS) |
+| `options.maxTokens` | `number` | Max output tokens (`maxOutputTokens` on Android; `maximumResponseTokens` on iOS). Native SDK/model limits apply. |
 | `options.topK` | `number` | Top-K sampling (maps to `.random(top:)` on iOS) |
 | `tools` | `ToolDefinition[]` | Tools the model can invoke (iOS 26+ only) |
 | `toolTimeout` | `number` | Seconds before an unresolved tool call times out (default 30) |
-| `responseFormat` | `"text" \| "json"` | Set to `"json"` for structured JSON output |
+| `responseFormat` | `"text" \| "json"` | Set to `"json"` for structured JSON output; requires `schema` |
 | `schema` | `Schema` | Schema for structured output (used with `responseFormat: "json"`) — see Structured Output section |
 | `includeSchemaInPrompt` | `boolean` | iOS 26+: include the schema definition in the prompt. Default `true`. Set `false` when you've front-loaded few-shot examples. |
 
@@ -232,108 +304,90 @@ if (!result.ok) {
 | `error` | `string \| null` | Last error message |
 | `activeToolCalls` | `ActiveToolCall[]` | In-flight tool calls (`{ callId, toolName }`) |
 | `respond` | `(prompt: string) => Promise<string>` | Non-streaming generation. `undefined` when unavailable. |
-| `session` | `LLMSession \| null` | The native session object. `null` when unavailable. |
+| `session` | `LLMSession \| null` | The native session object. `null` before creation or when unavailable. Use the hook's generation methods for hook-managed state and tool dispatch. |
 | `streamResponse` | `(prompt: string) => Promise<string>` | Streaming generation (updates `streamedText`). Resolves with the final text at stream end, or the partial text if cancelled; rejects on stream failure. `undefined` when model not `available`. |
-| `cancelStream` | `() => Promise<void>` | Cancel the active stream. Actually stops inference (not just token delivery); the pending `streamResponse` promise resolves with the partial text. `undefined` when unavailable. |
+| `cancelStream` | `() => Promise<void>` | Cancel the active stream; the pending `streamResponse` promise resolves with the partial text. Available whenever a session exists, even if model readiness changes. |
 | `reset` | `() => void` | Clear the conversation transcript, keeping instructions/tools/schema/options. Also cancels any in-flight stream. `undefined` only when there is no session. |
 | `downloadModel` | `() => Promise<void>` | Trigger model download (Android). `undefined` when unavailable. |
 
 ### `generate(prompt, config?)`
 
 One-shot stateless generation — creates a session, responds once, and releases it. Takes the
-same config as `useLocalLLM`/`createLLMSession`. Use it for classification or extraction
+same generation config as `useLocalLLM`/`createLLMSession`, except tool handlers are not supported. Use it for classification or extraction
 calls where conversation history between calls is unwanted. Throws when the module or model
 is unavailable (check `ExpoLocalLlmModule.getAvailability()` first if you need to gate).
 
+Use `useLocalLLM()` for automatic tool dispatch. Low-level `createLLMSession()` consumers must subscribe to `toolCall` and resolve or reject each call themselves; passing handlers in its configuration does not install those listeners.
+
+### `generateObject(prompt, config)`
+
+One-shot structured generation with a required `schema`. Returns an object whose type is inferred from the schema, after validating every required field, primitive type, enum, array item, and nested object. Unexpected properties are rejected. Use inline schema literals or `as const satisfies Schema` to preserve enum literal types.
+
+This helper requires constrained structured output support (currently iOS 26+). It releases its session on success and failure. Generation errors and model refusals still reject the call; schema validation establishes structure, not factual accuracy.
+
+`validateStructuredOutput(value, schema)` is also available for checking an already-parsed value against a valid schema. It returns `{ ok: true }` or `{ ok: false, errors }` with field paths.
+
+### `createLLMSession(config?)`
+
+Creates a manually owned conversation. Release it when finished:
+
+```ts
+import { createLLMSession } from 'expo-local-llm';
+
+const session = createLLMSession({ instructions: 'Keep answers concise.' });
+try {
+  const text = await session.respond('Suggest a short title for a gardening journal.');
+} finally {
+  session.release();
+}
+```
+
+Low-level `respond(prompt, requestId?)` and `streamResponse(prompt, requestId?)` accept an optional request identifier. Generation events carry `requestId` so consumers can discard queued events from cancelled or reset requests. Omit it to let native code generate an identifier; `useLocalLLM()` manages identifiers and filtering automatically. Use a distinct identifier for each invocation.
+
 ### `ModelAvailability`
 
-`'available' | 'notEnabled' | 'notReady' | 'notEligible' | 'downloadRequired' | 'downloading' | 'unknown'`
+`'available' | 'notEnabled' | 'notReady' | 'notEligible' | 'downloadRequired' | 'downloading' | 'unknown' | 'moduleUnavailable'`
+
+Android readiness is checked asynchronously and may initially be `unknown`. Prefer `useLocalLLM()` for reactive readiness; low-level consumers should listen for the module's `availabilityChange` event instead of treating the first synchronous status read as final.
 
 ## Platform Asymmetries
 
 | Concern | iOS | Android |
 |---------|-----|---------|
 | System instructions | Native `LanguageModelSession(instructions:)` | Prepended in prompt text |
-| Output tokens | ~4K context, generous output | 256 max |
+| Token limits | OS/model-dependent | SDK/model-dependent |
 | Model availability | Built-in to OS | May need download |
 | Session history | Native session maintains it | `ConversationHistory` class |
 | Streaming | `AsyncSequence` | Kotlin `Flow` |
 
 ## Known Limitations
 
-- Only one active stream at a time. Events are not scoped to session ID.
+- Events belong to their session. Use a separate session for independent conversations.
+- A session accepts one generation at a time; overlapping requests reject. After cancellation, await the original generation promise before starting another request.
 - **Android**: Gemini Nano SDK is in beta. API surface may change — not yet validated on device.
 - **iOS**: Apple's Foundation Model may refuse certain categories of prompts (e.g. personal health data interpretation) due to built-in safety guardrails.
-- Methods (`respond`, `streamResponse`, `cancelStream`) are only defined when `availability === 'available'`.
+- Generation methods (`respond`, `streamResponse`) require a session and `availability === 'available'`. Cancellation remains available while a session exists.
 - Tool calling is iOS 26+ only. Android will throw at session creation if tools are passed.
-- Structured output on Android uses instruction-based JSON guidance. iOS 26+ uses constrained
-  decoding via `DynamicGenerationSchema`.
+- Structured output on Android is unsupported. iOS 26+ uses constrained decoding via `DynamicGenerationSchema`.
 
 ## Why an Expo module?
 
-This is built as an [Expo Module](https://docs.expo.dev/modules/overview/), not
-a bare React Native library. Here's why:
+The [Expo Modules API](https://docs.expo.dev/modules/overview/) fits OS-provided AI APIs well:
 
-- **`expo install` and go** — no manual Xcode/Gradle linking, no `pod install`
-  surprises. Works with `npx expo prebuild` and managed workflow out of the box.
-- **SharedObject lifecycle** — `LLMSession` extends Expo's `SharedObject`, which
-  handles native memory management, event subscriptions, and cleanup
-  automatically when the JS object is garbage collected. In bare RN you'd wire
-  this yourself with `NativeEventEmitter` and manual release calls.
-- **Class DSL** — the native module exposes `LLMSession` as a first-class JS
-  object with instance methods (`session.respond()`, `session.streamResponse()`)
-  rather than flat module-level functions with session IDs. This is an Expo
-  Modules API feature that doesn't exist in the classic RN bridge.
-- **Cross-platform parity** — Expo's Kotlin DSL mirrors the Swift DSL, so the
-  iOS and Android modules have the same structure. Adding Android tool calling
-  later means implementing the same interface, not building a separate bridge.
+- **Native session objects** — Expo's `SharedObject` and class DSL expose instance methods and session-scoped events directly to JavaScript.
+- **Lifecycle integration** — native cleanup hooks support cancellation and resource release. `generate()` releases its session automatically; consumers of `createLLMSession()` must call `release()` when finished.
+- **Swift and Kotlin** — both implementations use a consistent module definition style, without adding a separate inference engine.
+- **Expo build workflows** — autolinking integrates with prebuild, local development builds, and EAS Build.
 
-If you're on bare React Native without Expo, this module won't work — you'd need
-to add `expo-modules-core` as a dependency or use a different library.
+Expo does not improve model quality or remove device eligibility requirements. Its native-call performance is comparable to React Native Turbo Modules; autolinking is not unique to Expo. The benefit is a cohesive integration and maintenance experience.
 
-## How is this different from React Native AI? (as of August 2026)
+Existing React Native apps can use this library after [installing Expo Modules support](https://docs.expo.dev/bare/installing-expo-modules/). Expo-first does not mean Expo-only.
 
-[React Native AI](https://github.com/callstackincubator/ai) (formerly `@callstack/ai`)
-is a Vercel AI SDK-compatible collection of on-device AI primitives, modularized
-into per-backend packages: `@react-native-ai/apple`, `@react-native-ai/llama`,
-`@react-native-ai/mlc`, and — new as of July 2026 — `@react-native-ai/adk`, which
-wraps Google's Agent Development Kit to run on-device Gemini Nano (or cloud
-Gemini) on Android. It covers text generation, tool calling, embeddings,
-transcription, and speech synthesis.
+## Choosing this library
 
-`expo-local-llm` takes a narrower approach:
+Choose `expo-local-llm` for a small, Expo-first API around system-provided language models: short text generation, classification, extraction, and streaming interfaces on supported devices. You do not select or distribute model weights.
 
-| | `expo-local-llm` | React Native AI |
-|---|---|---|
-| **Surface** | React hook (`useLocalLLM`) and a native session object | Vercel AI SDK provider (`generateText`, `streamText`, `embed`, `transcribe`, `speech`) |
-| **iOS model** | Apple Foundation Models (system-provided) | Apple Foundation Models, Llama (via llama.rn), MLC LLM |
-| **Android model** | Gemini Nano (system-provided) | Gemini Nano (via ADK/ML Kit GenAI), cloud Gemini, Llama, MLC |
-| **Capabilities** | Text generation, tool calling, constrained JSON output | Text, tool calling, embeddings, transcription, speech synthesis, image input (ADK) |
-| **Structured output** | Constrained decoding on iOS; instruction-based on Android | JSON mode via `responseMimeType` on ADK (no schema constraints); MLC on iOS |
-| **Model management** | None — the OS handles it | Built-in for Apple/ADK; download/prepare for Llama/MLC |
-| **Bundle size impact** | Near zero | Depends on which provider you install + model weights (ADK pulls in Google GenAI libraries) |
-| **DevTools** | None | AI SDK Profiler via Rozenite (OpenTelemetry spans) |
-| **Install path** | One `expo install`, autolinks | Per-package install; ADK needs New Architecture, `minSdkVersion` 26, and packaging excludes |
-| **Dependencies** | None | Vercel AI SDK (v6 as of v0.12) and per-provider runtimes |
-
-**Choose `expo-local-llm` if** you want the simplest path to on-device LLM in
-an Expo app and are happy using whatever model the OS provides (Apple Foundation
-Models on iOS, Gemini Nano on Android). There's nothing to configure, no weights
-to bundle, and it works on both platforms with a single install.
-
-**Choose React Native AI if** you need any of:
-- Vercel AI SDK compatibility (drop-in replacement for cloud-LLM apps)
-- Capabilities beyond text generation (embeddings, transcription, speech synthesis, image input)
-- Specific models (Llama 3.2, Phi-3, Mistral, Qwen) on either iOS or Android
-- A cloud Gemini fallback behind the same API as on-device Gemini Nano
-- AI SDK Profiler DevTools for tracing
-
-The biggest change since June 2026: React Native AI's `@react-native-ai/adk`
-package closed the Android gap — it now offers system-provided Gemini Nano too,
-with tool calling and multimodal input. The remaining differences are setup
-weight (ADK requires New Architecture, `minSdkVersion` 26, and Gradle packaging
-tweaks vs. a single `expo install` here) and API shape (Vercel AI SDK functions
-vs. a React hook with a session object).
+If you need downloadable models, embeddings, speech, or an AI SDK provider interface, evaluate a broader runtime such as [React Native AI](https://github.com/callstackincubator/ai). Check its current provider documentation for platform requirements. This library does not implement those capabilities or automatically route requests to a cloud model.
 
 ## Built with expo-local-llm
 

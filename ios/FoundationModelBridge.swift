@@ -2,6 +2,28 @@ import FoundationModels
 
 @available(iOS 26, *)
 enum FoundationModelBridge {
+  struct StreamHandle<Element> {
+    let stream: AsyncThrowingStream<Element, Error>
+    private let producer: Task<Void, Never>
+
+    init(
+      stream: AsyncThrowingStream<Element, Error>,
+      producer: Task<Void, Never>
+    ) {
+      self.stream = stream
+      self.producer = producer
+    }
+
+    func waitForProducer() async {
+      await producer.value
+    }
+
+    func cancelAndWaitForProducer() async {
+      producer.cancel()
+      await producer.value
+    }
+  }
+
   static func checkAvailability() -> ModelAvailability {
     switch SystemLanguageModel.default.availability {
     case .available:
@@ -22,8 +44,17 @@ enum FoundationModelBridge {
     }
   }
 
-  static func createSession(instructions: String?, dynamicTools: [DynamicTool] = []) -> LanguageModelSession {
+  static func createSession(
+    instructions: String?,
+    dynamicTools: [DynamicTool] = [],
+    transcript: Any? = nil
+  ) -> LanguageModelSession {
     let tools: [any Tool] = dynamicTools
+    if let transcript = transcript as? Transcript {
+      // The transcript already contains the original instructions and all
+      // completed turns. This initializer restores exactly that state.
+      return LanguageModelSession(tools: tools, transcript: transcript)
+    }
     if tools.isEmpty {
       if let instructions {
         return LanguageModelSession(instructions: instructions)
@@ -35,6 +66,10 @@ enum FoundationModelBridge {
       }
       return LanguageModelSession(tools: tools)
     }
+  }
+
+  static func transcript(from session: Any?) -> Any? {
+    (session as? LanguageModelSession)?.transcript
   }
 
   /// Map the module's JS-facing generation options onto Apple's. `topK`
@@ -78,27 +113,32 @@ enum FoundationModelBridge {
     return response.content.jsonString
   }
 
-  static func stream(session: Any, prompt: String, options: FoundationModels.GenerationOptions) -> AsyncThrowingStream<String, Error> {
+  static func stream(
+    session: Any,
+    prompt: String,
+    options: FoundationModels.GenerationOptions
+  ) -> StreamHandle<String> {
     guard let session = session as? LanguageModelSession else {
-      return AsyncThrowingStream { $0.finish(throwing: SessionInvalidException()) }
+      return finishedStream(throwing: SessionInvalidException())
     }
-    return AsyncThrowingStream { continuation in
-      let task = Task {
-        do {
-          let stream = session.streamResponse(to: prompt, options: options)
-          for try await partial in stream {
-            continuation.yield(partial.content)
-          }
-          continuation.finish()
-        } catch {
-          continuation.finish(throwing: error)
+
+    let (stream, continuation) = AsyncThrowingStream<String, Error>.makeStream()
+    let producer = Task {
+      do {
+        let responseStream = session.streamResponse(to: prompt, options: options)
+        for try await partial in responseStream {
+          continuation.yield(partial.content)
         }
+        continuation.finish()
+      } catch {
+        continuation.finish(throwing: error)
       }
-      // Without this, cancelling the consumer leaves the producer running
-      // the model to completion (battery/thermal cost, and the session
-      // stays busy, rejecting the next prompt).
-      continuation.onTermination = { _ in task.cancel() }
     }
+    // Without this, cancelling the consumer leaves the producer running
+    // the model to completion (battery/thermal cost, and the session
+    // stays busy, rejecting the next prompt).
+    continuation.onTermination = { _ in producer.cancel() }
+    return StreamHandle(stream: stream, producer: producer)
   }
 
   struct PartialSnapshot {
@@ -112,29 +152,40 @@ enum FoundationModelBridge {
     schema: GenerationSchema,
     includeSchemaInPrompt: Bool,
     options: FoundationModels.GenerationOptions
-  ) -> AsyncThrowingStream<PartialSnapshot, Error> {
+  ) -> StreamHandle<PartialSnapshot> {
     guard let session = session as? LanguageModelSession else {
-      return AsyncThrowingStream { $0.finish(throwing: SessionInvalidException()) }
+      return finishedStream(throwing: SessionInvalidException())
     }
-    return AsyncThrowingStream { continuation in
-      let task = Task {
-        do {
-          let stream = session.streamResponse(
-            to: prompt,
-            schema: schema,
-            includeSchemaInPrompt: includeSchemaInPrompt,
-            options: options
-          )
-          for try await snapshot in stream {
-            let content = snapshot.content
-            continuation.yield(PartialSnapshot(json: content.jsonString, complete: content.isComplete))
-          }
-          continuation.finish()
-        } catch {
-          continuation.finish(throwing: error)
+
+    let (stream, continuation) = AsyncThrowingStream<PartialSnapshot, Error>.makeStream()
+    let producer = Task {
+      do {
+        let responseStream = session.streamResponse(
+          to: prompt,
+          schema: schema,
+          includeSchemaInPrompt: includeSchemaInPrompt,
+          options: options
+        )
+        for try await snapshot in responseStream {
+          let content = snapshot.content
+          continuation.yield(PartialSnapshot(json: content.jsonString, complete: content.isComplete))
         }
+        continuation.finish()
+      } catch {
+        continuation.finish(throwing: error)
       }
-      continuation.onTermination = { _ in task.cancel() }
     }
+    continuation.onTermination = { _ in producer.cancel() }
+    return StreamHandle(stream: stream, producer: producer)
+  }
+
+  private static func finishedStream<Element>(
+    throwing error: Error
+  ) -> StreamHandle<Element> {
+    let producer = Task<Void, Never> {}
+    let stream = AsyncThrowingStream<Element, Error> { continuation in
+      continuation.finish(throwing: error)
+    }
+    return StreamHandle(stream: stream, producer: producer)
   }
 }

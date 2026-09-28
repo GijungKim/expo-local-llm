@@ -2,6 +2,9 @@ import {
   LLMSession,
   createLLMSession,
   generate,
+  generateObject,
+  getModuleDiagnostics,
+  NativeModuleUnavailableError,
   ExpoLocalLlmModule,
 } from "../index";
 
@@ -17,6 +20,8 @@ jest.mock("expo-modules-core", () => ({
     }
   },
 }));
+
+jest.mock("react-native", () => ({ Platform: { OS: "ios" } }));
 
 describe("ExpoLocalLlm", () => {
   describe("exports", () => {
@@ -50,6 +55,17 @@ describe("ExpoLocalLlm", () => {
         /ExpoLocalLlm/
       );
     });
+
+    it("provides Expo Go and native rebuild setup guidance", () => {
+      expect(getModuleDiagnostics()).toMatchObject({
+        available: false,
+        reason: "moduleUnavailable",
+      });
+      expect(getModuleDiagnostics().message).toMatch(/development build/i);
+      expect(getModuleDiagnostics().message).toMatch(/Expo Go cannot load/i);
+      expect(getModuleDiagnostics().message).toMatch(/rebuild the native/i);
+      expect(() => createLLMSession()).toThrow(/development build/i);
+    });
   });
 
   describe("generate", () => {
@@ -58,10 +74,21 @@ describe("ExpoLocalLlm", () => {
     });
   });
 
+  describe("generateObject", () => {
+    it("uses the native-module-specific error when the module is missing", async () => {
+      await expect(
+        generateObject("hello", {
+          schema: { answer: { type: "string" } },
+        })
+      ).rejects.toBeInstanceOf(NativeModuleUnavailableError);
+    });
+  });
+
   describe("ModelAvailability values", () => {
     it("all values are valid strings", () => {
       const values = [
         "available",
+        "moduleUnavailable",
         "notEnabled",
         "notReady",
         "notEligible",
@@ -69,7 +96,7 @@ describe("ExpoLocalLlm", () => {
         "downloading",
         "unknown",
       ];
-      expect(values).toHaveLength(7);
+      expect(values).toHaveLength(8);
       values.forEach((value) => expect(value).toEqual(expect.any(String)));
     });
   });

@@ -21,14 +21,17 @@ If you are unsure if a PR would be accepted, open an issue first or look for iss
 
 ## Developing
 
-- Requirements: Node 22+, npm
+- Requirements: Node 24, Bun 1.4.2 (matching CI). The SDK 57 example requires Xcode 26.4+ on iOS; Android requires SDK 36, NDK 27.1.12297006, and JDK 17. See [native compile checks](tools/native-check/README.md).
 - Install dependencies and validate:
 
   ```bash
-  npm install
-  npm run lint
-  npm run build
-  npm test
+  bun install --frozen-lockfile
+  bun run lint
+  bun run test:anti-slop
+  bun run knip
+  bun run test -- --runInBand
+  bun run test:types
+  bun run build
   ```
 
 - Core pieces:
@@ -43,9 +46,11 @@ If you are unsure if a PR would be accepted, open an issue first or look for iss
 # iOS (requires iOS 26+ device with Apple Intelligence)
 cd example && npx expo run:ios --device
 
-# Android (requires Pixel 8+ or Galaxy S25+ with Gemini Nano)
+# Android (requires a device supported by the configured Gemini Nano SDK)
 cd example && npx expo run:android --device
 ```
+
+Install the example's dependencies after building the root package. Use a native development build, not stock Expo Go. Follow the [release verification checklist](docs/release-verification.md) for native changes; unit tests and simulator compilation do not verify physical-device inference.
 
 ## Pull Request Expectations
 
@@ -92,7 +97,7 @@ You can optionally include a scope:
 - Use string union types for options, not booleans or enums (on the TypeScript side)
 - Prefer optionality for availability checks over `isAvailable` functions
 - Keep native code gated behind `#available` / `@available` (iOS) or try/catch (Android)
-- Run `npm run lint` before submitting — CI will reject lint failures
+- Run `bun run lint` before submitting — CI will reject lint failures
 
 ## Feature Requests
 

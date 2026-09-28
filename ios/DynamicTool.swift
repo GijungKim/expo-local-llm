@@ -41,8 +41,8 @@ final class DynamicTool: Tool {
   typealias Arguments = DynamicArguments
 
   /// Callback invoked when the model calls this tool.
-  /// Parameters: (callId, toolName, argumentsJSON) -> Void
-  private let onToolCall: @Sendable (String, String, String) -> Void
+  /// Returns whether the invocation was accepted for delivery to JavaScript.
+  private let onToolCall: @Sendable (String, String, String) -> Bool
 
   /// Pending continuations keyed by callId, awaiting JS results.
   private let continuationStore: ToolContinuationStore
@@ -56,7 +56,7 @@ final class DynamicTool: Tool {
     parameterSchema: [String: Any],
     timeoutSeconds: TimeInterval = 30,
     continuationStore: ToolContinuationStore,
-    onToolCall: @Sendable @escaping (String, String, String) -> Void
+    onToolCall: @Sendable @escaping (String, String, String) -> Bool
   ) {
     self.name = name
     // Embed the parameter schema in the description so the model knows
@@ -71,24 +71,38 @@ final class DynamicTool: Tool {
   func call(arguments: DynamicArguments) async throws -> String {
     let callId = UUID().uuidString
 
-    // Send event to JS
-    onToolCall(callId, name, arguments.parametersJSON)
+    return try await withTaskCancellationHandler {
+      // Store the continuation before notifying JS. Otherwise a synchronous
+      // JS handler can resolve the call before there is anything to resume.
+      return try await withCheckedThrowingContinuation { continuation in
+        guard continuationStore.store(callId: callId, continuation: continuation) else {
+          return
+        }
 
-    // Wait for JS to resolve this call
-    return try await withCheckedThrowingContinuation { continuation in
-      continuationStore.store(callId: callId, continuation: continuation)
+        // Schedule timeout — cancelled by the store when the call resolves,
+        // so it doesn't linger for the full duration after a fast handler.
+        let timeoutSeconds = self.timeoutSeconds
+        let timeoutTask = Task { [continuationStore] in
+          try? await Task.sleep(for: .seconds(timeoutSeconds))
+          guard !Task.isCancelled else { return }
+          if let timedOut = continuationStore.remove(callId: callId) {
+            timedOut.resume(throwing: DynamicToolError.timeout)
+          }
+        }
+        continuationStore.attachTimeout(callId: callId, task: timeoutTask)
 
-      // Schedule timeout — cancelled by the store when the call resolves,
-      // so it doesn't linger for the full duration after a fast handler.
-      let timeoutSeconds = self.timeoutSeconds
-      let timeoutTask = Task { [continuationStore] in
-        try? await Task.sleep(for: .seconds(timeoutSeconds))
-        guard !Task.isCancelled else { return }
-        if let timedOut = continuationStore.remove(callId: callId) {
-          timedOut.resume(throwing: DynamicToolError.timeout)
+        if Task.isCancelled {
+          _ = continuationStore.reject(callId: callId, error: CancellationError())
+        } else if !onToolCall(callId, name, arguments.parametersJSON) {
+          // A reset/release can invalidate this generation before its native
+          // tool callback reaches JS. Never leave that continuation pending.
+          _ = continuationStore.reject(callId: callId, error: CancellationError())
         }
       }
-      continuationStore.attachTimeout(callId: callId, task: timeoutTask)
+    } onCancel: { [continuationStore] in
+      // Cancelling/resetting a generation must also release any native tool
+      // call suspended on a JavaScript result.
+      _ = continuationStore.reject(callId: callId, error: CancellationError())
     }
   }
 
@@ -121,12 +135,20 @@ final class ToolContinuationStore: @unchecked Sendable {
   }
 
   private var pending: [String: Pending] = [:]
+  private var closed = false
   private let lock = NSLock()
 
-  func store(callId: String, continuation: CheckedContinuation<String, Error>) {
+  @discardableResult
+  func store(callId: String, continuation: CheckedContinuation<String, Error>) -> Bool {
     lock.lock()
+    guard !closed else {
+      lock.unlock()
+      continuation.resume(throwing: CancellationError())
+      return false
+    }
     pending[callId] = Pending(continuation: continuation, timeoutTask: nil)
     lock.unlock()
+    return true
   }
 
   /// Attach the timeout task for a call so it can be cancelled on resolve.
@@ -164,9 +186,11 @@ final class ToolContinuationStore: @unchecked Sendable {
     return true
   }
 
-  /// Cancel all pending continuations (e.g., on session teardown).
-  func cancelAll() {
+  /// Permanently close this session store and cancel all pending calls. Late
+  /// registrations are rejected immediately instead of waiting for timeout.
+  func close() {
     lock.lock()
+    closed = true
     let entries = pending
     pending.removeAll()
     lock.unlock()

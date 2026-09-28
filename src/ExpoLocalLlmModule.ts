@@ -9,11 +9,17 @@ declare class ExpoLocalLlmModuleType extends NativeModule<ExpoLocalLlmModuleEven
 }
 
 let nativeModule: ExpoLocalLlmModuleType | null;
+let nativeModuleLoadError: Error | null = null;
 
 try {
   nativeModule = requireNativeModule<ExpoLocalLlmModuleType>("ExpoLocalLlm");
-} catch {
+} catch (error) {
   nativeModule = null;
+  nativeModuleLoadError =
+    error instanceof Error
+      ? error
+      : new Error("Unknown native module loader error");
 }
 
+export { nativeModuleLoadError };
 export default nativeModule;

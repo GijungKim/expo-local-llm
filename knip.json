@@ -3,6 +3,7 @@
   "entry": [
     "src/index.ts",
     "src/__tests__/**/*.test.ts",
+    "src/__tests__/**/*.typecheck.ts",
     "example/index.ts",
     "example/babel.config.js",
     "example/metro.config.js"
