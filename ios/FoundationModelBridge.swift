@@ -79,8 +79,11 @@ enum FoundationModelBridge {
     if let topK {
       sampling = .random(top: topK)
     }
+    // `samplingMode:` is declared only in the iOS 27 SDK. The supported minimum
+    // toolchain (Xcode 26.4) still requires `sampling:`, which the iOS 27 SDK
+    // deprecates but retains. Migrate when the toolchain floor moves to Xcode 27.
     return FoundationModels.GenerationOptions(
-      samplingMode: sampling,
+      sampling: sampling,
       temperature: temperature,
       maximumResponseTokens: maxTokens
     )
