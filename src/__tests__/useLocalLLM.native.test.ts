@@ -32,7 +32,11 @@ jest.mock("expo-modules-core", () => {
   const release = jest.fn();
   const sessionConstructor = jest.fn();
   const instances: MockNativeSession[] = [];
+  // Lets a test make session construction fail the way Android rejects a
+  // configuration it does not support.
+  let rejectJsonConfig = false;
   class MockNativeSession {
+    released = false;
     listeners = new Map<string, (mockPayload: MockStreamEvent) => void>();
     respond = jest.fn();
     streamResponse = jest.fn();
@@ -42,13 +46,25 @@ jest.mock("expo-modules-core", () => {
     rejectToolCall = jest.fn();
     addListener = jest.fn(
       (name: string, listener: (mockPayload: MockStreamEvent) => void) => {
+        // Android refuses native calls on a shared object that was released.
+        if (this.released) {
+          throw new Error("Cannot use shared object that was already released");
+        }
         this.listeners.set(name, listener);
         return { remove: jest.fn(() => this.listeners.delete(name)) };
       }
     );
-    release = release;
+    release = () => {
+      this.released = true;
+      release();
+    };
     constructor(config: SessionConfig) {
       sessionConstructor(config);
+      if (rejectJsonConfig && config.responseFormat === "json") {
+        throw new Error(
+          "ERR_RESPONSE_FORMAT_NOT_SUPPORTED: Structured JSON output is not supported on Android yet"
+        );
+      }
       instances.push(this);
     }
     emit(name: string, mockEvent: MockStreamEvent) {
@@ -63,6 +79,9 @@ jest.mock("expo-modules-core", () => {
     __release: release,
     __sessionConstructor: sessionConstructor,
     __instances: instances,
+    __setRejectJsonConfig: (value: boolean) => {
+      rejectJsonConfig = value;
+    },
   };
   return {
     requireNativeModule: jest.fn(() => nativeModule),
@@ -77,6 +96,7 @@ const mockNativeModule = require("expo-modules-core").__nativeModule;
 const mockRelease = mockNativeModule.__release;
 const mockSessionConstructor = mockNativeModule.__sessionConstructor;
 const mockInstances = mockNativeModule.__instances;
+const mockSetRejectJsonConfig = mockNativeModule.__setRejectJsonConfig;
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -100,6 +120,29 @@ function ResultConsumer({
   onValue(value: HookResult): void;
 }) {
   onValue(useLocalLLM({ instructions }));
+  return null;
+}
+
+function ConfigConsumer({
+  instructions,
+  json,
+  onValue,
+}: {
+  instructions: string;
+  json: boolean;
+  onValue(value: HookResult): void;
+}) {
+  onValue(
+    useLocalLLM(
+      json
+        ? {
+            instructions,
+            responseFormat: "json",
+            schema: { name: { type: "string" } },
+          }
+        : { instructions }
+    )
+  );
   return null;
 }
 
@@ -142,6 +185,7 @@ describe("useLocalLLM native session lifecycle", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockInstances.splice(0);
+    mockSetRejectJsonConfig(false);
     mockNativeModule.getAvailability.mockReturnValue("available");
   });
 
@@ -164,6 +208,40 @@ describe("useLocalLLM native session lifecycle", () => {
     expect(mockRelease).toHaveBeenCalledTimes(
       mockSessionConstructor.mock.calls.length
     );
+  });
+
+  it("does not subscribe to a session released by a failed recreation", async () => {
+    let value: HookResult | undefined;
+    const render = (json: boolean) =>
+      React.createElement(ConfigConsumer, {
+        instructions: "Kitchen assistant",
+        json,
+        onValue: (next: HookResult) => (value = next),
+      });
+
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(render(false));
+    });
+
+    const firstSession = mockInstances[0];
+    expect(firstSession).toBeDefined();
+    const listensBefore = firstSession.addListener.mock.calls.length;
+    expect(listensBefore).toBeGreaterThan(0);
+
+    // Switching config recreates the session, and on Android structured output
+    // makes that recreation fail.
+    mockSetRejectJsonConfig(true);
+    await act(async () => {
+      renderer.update(render(true));
+    });
+
+    expect(value?.session).toBeNull();
+    expect(value?.error).toMatch(/not supported on Android/);
+    // The previous session was released by the creation effect's cleanup, so the
+    // listener effect must not subscribe to it again.
+    expect(firstSession.released).toBe(true);
+    expect(firstSession.addListener.mock.calls.length).toBe(listensBefore);
   });
 
   it("subscribes before refreshing and rechecks availability on foreground", async () => {

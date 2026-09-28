@@ -45,7 +45,7 @@ For each release, record the package commit, Expo SDK, native SDK/toolchain, dev
 
 | Scenario | iOS result | Android result |
 | --- | --- | --- |
-| Eligibility, disabled/not-ready model, and ready state | Ready (`available`) confirmed on simulator and iPhone 15 Pro. Disabled and not-ready states not exercised | Pending |
+| Eligibility, disabled/not-ready model, and ready state | Ready (`available`) confirmed on simulator and iPhone 15 Pro. Disabled and not-ready states not exercised | Module loaded and reported `notEligible` on Galaxy A17; the app stayed usable |
 | Missing native module gives rebuild guidance | Pending | Pending |
 | Text response and streaming final text | Verified on simulator and iPhone 15 Pro (streamed text rendered, final text matched) | Pending |
 | Cancel stops generation; next request succeeds and retains earlier completed turns | Cancel and next-request success verified on simulator; retention of earlier completed turns not explicitly exercised | Pending |
@@ -54,7 +54,7 @@ For each release, record the package commit, Expo SDK, native SDK/toolchain, dev
 | Queued output/tool events from before reset cannot affect the next request | Pending | Pending |
 | Unmount/release while generating | Pending | Pending |
 | Model download succeeds and recovers after failure | Not applicable | Pending |
-| Structured object passes nested schema validation | Verified on simulator and iPhone 15 Pro (object with string, array, and enum fields) | Unsupported; verify explicit rejection |
+| Structured object passes nested schema validation | Verified on simulator and iPhone 15 Pro (object with string, array, and enum fields) | Unsupported, and rejection is clean: a clear error is surfaced and the app stays usable (verified on Galaxy A17) |
 | Tool success, rejection, timeout, and teardown | Pending — the example UI exposes no tools | Unsupported; verify explicit rejection |
 
 “Pending” is intentional: this document is a checklist, not fabricated device evidence. Complete the relevant rows before claiming a platform is device-verified.
@@ -65,6 +65,7 @@ For each release, record the package commit, Expo SDK, native SDK/toolchain, dev
 | --- | --- | --- |
 | Simulator | iPhone 18 Pro, iOS 27.0 runtime, host Mac with Apple Intelligence enabled; Expo SDK 57.0.25, React Native 0.86.2, Xcode 27.0; package at `c95a978` | Ready, text, JSON, cancel, and recovery passed |
 | Physical device | iPhone 15 Pro, iOS 27.0, Apple Intelligence enabled; same toolchain and package revision | Ready, text, and JSON passed |
+| Physical device (Android) | Galaxy A17 (SM-A176U1), Android 16 / SDK 36, arm64; Expo SDK 57.0.25, React Native 0.86.2, JDK 17, SDK build-tools 36.0.0, NDK 27.1.12297006 | Module loaded, `notEligible` reported, structured output rejected cleanly |
 
 Both runs used the debug example app. They establish that inference, structured output, and cancellation work; they do not measure latency, memory, or thermal behavior, which still require a dedicated performance pass.
 
