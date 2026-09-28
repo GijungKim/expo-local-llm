@@ -41,7 +41,10 @@ jobs:
         uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: 17
+          # The Android toolchain in this Expo SDK supports JDK 17-21. JDK 24+
+          # fails the NDK CMake configure step with JEP 472 restricted native
+          # access, so the java-jdk major update is declined for now.
+          java-version: 21
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
