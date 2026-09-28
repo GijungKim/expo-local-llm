@@ -6,7 +6,9 @@ We do not accept AI-generated security reports. If you submit one, it will be ig
 
 ## Threat Model
 
-expo-local-llm runs LLM inference entirely on-device. No user data leaves the device through this module — prompts and responses stay local.
+expo-local-llm runs LLM inference entirely on-device. No user data leaves the device through this module — prompts and responses stay local. This module does not operate a backend, and there is no automatic cloud fallback.
+
+The underlying model runtimes are separate vendor SDKs (Apple Foundation Models, Google ML Kit / AICore). They are governed by their own terms and may perform their own diagnostics independently of this module. Verify each vendor's current documentation before making privacy claims about your app.
 
 ### Out of Scope
 

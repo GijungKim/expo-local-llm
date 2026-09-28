@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.7.0
+
+- Add capability discovery and actionable native-module setup diagnostics, separate from model readiness.
+- Add `generateObject()` with schema-inferred result types and runtime output validation.
+- Accept readonly schema enum tuples for literal inference; consumers editing a `SchemaField` enum should replace the array rather than mutate it in place.
+- Reject unsupported Android structured-output requests instead of silently ignoring their configuration.
+- Replace the unavailable Android Local Agent dependency with the published ML Kit Prompt API; token limits now follow that SDK rather than a library-imposed 256-token cap.
+- Harden generation overlap, cancellation, reset, and download-failure handling.
+- Tag native generation events with request identifiers so queued output and tool calls cannot update a newer hook request after reset.
+- Add native compilation checks and a physical-device release verification checklist.
+- Specify the Apple podspec path explicitly so local file-dependency installs are autolinked reliably.
+- Enable UIKit scene support in the example so it launches when built with Xcode 27, and document the app-level requirement.
+- Lock example dependencies and restore the lint baseline with an ESLint version supported by the existing import plugin.
+- Clarify development-build requirements, Expo Modules integration, and platform-specific guarantees.
+- Remove dead optional-coalescing fallbacks and restate `@unchecked Sendable` conformance in the native iOS exceptions.
+
+**Migration notes:** missing native code is reported as `moduleUnavailable`, not `notEligible`. Handle the new availability value in exhaustive switches. Explicit JSON mode requires a schema. One-shot helpers reject tools; use `useLocalLLM()` for automatic tool dispatch. Rebuild your native app to pick up native changes. Check capabilities before requesting platform-specific features.
+
+Overlapping requests on the same session now reject instead of replacing an active stream. After cancellation, await the original generation promise before starting another request.
+
+The updated hook requires native request-tagged events. Ship the JavaScript and native changes together in a rebuilt binary; do not deliver this hook update alone to older binaries through EAS Update.
+
 ## 0.6.0
 
 Types-only release: tool-call arguments are now honestly typed.

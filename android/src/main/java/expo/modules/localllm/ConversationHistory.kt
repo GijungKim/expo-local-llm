@@ -6,13 +6,9 @@ class ConversationHistory(private val systemInstructions: String?) {
   private val messages = mutableListOf<Message>()
   private val maxExchanges = 10
 
-  fun addUserMessage(content: String) {
-    messages.add(Message("User", content))
-    trimHistory()
-  }
-
-  fun addAssistantMessage(content: String) {
-    messages.add(Message("Assistant", content))
+  fun addExchange(user: String, assistant: String) {
+    messages.add(Message("User", user))
+    messages.add(Message("Assistant", assistant))
     trimHistory()
   }
 
@@ -20,7 +16,7 @@ class ConversationHistory(private val systemInstructions: String?) {
     messages.clear()
   }
 
-  fun buildPrompt(): String {
+  fun buildPrompt(addingUserMessage: String): String {
     val sb = StringBuilder()
     if (!systemInstructions.isNullOrBlank()) {
       sb.appendLine("[System] $systemInstructions")
@@ -29,6 +25,7 @@ class ConversationHistory(private val systemInstructions: String?) {
     for (msg in messages) {
       sb.appendLine("[${msg.role}] ${msg.content}")
     }
+    sb.appendLine("[User] $addingUserMessage")
     return sb.toString().trim()
   }
 

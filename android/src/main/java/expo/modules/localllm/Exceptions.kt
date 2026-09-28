@@ -11,5 +11,15 @@ class SessionInvalidException :
 class StreamException(message: String) :
   CodedException("ERR_STREAM", message, null)
 
+class SessionBusyException :
+  CodedException("ERR_SESSION_BUSY", "This LLM session already has a generation in progress", null)
+
+class ResponseFormatNotSupportedException :
+  CodedException(
+    "ERR_RESPONSE_FORMAT_NOT_SUPPORTED",
+    "Structured JSON output is not supported on Android yet",
+    null
+  )
+
 class ToolNotSupportedException :
   CodedException("ERR_TOOL_NOT_SUPPORTED", "Tool calling is not supported on Android yet", null)

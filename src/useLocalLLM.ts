@@ -14,6 +14,7 @@ import type {
 } from "./ExpoLocalLlm.types";
 import ExpoLocalLlmModule from "./ExpoLocalLlmModule";
 import { createLLMSession, LLMSession } from "./LLMSession";
+import { getModuleDiagnostics } from "./capabilities";
 
 type UseLocalLLMOptions = SessionConfig;
 
@@ -34,16 +35,37 @@ type UseLocalLLMResult = {
   downloadModel?: () => Promise<void>;
 };
 
+type ActiveRequest = {
+  id: string;
+  epoch: number;
+  kind: "respond" | "stream";
+  session: LLMSession;
+};
+
+let requestSequence = 0;
+
+function createRequestId(): string {
+  requestSequence += 1;
+  return `expo-local-llm-request-${requestSequence}`;
+}
+
+function readAvailability(): ModelAvailability {
+  if (!ExpoLocalLlmModule) return "moduleUnavailable";
+  try {
+    // SAFETY: native implementations return the documented availability union.
+    return ExpoLocalLlmModule.getAvailability() as ModelAvailability;
+  } catch {
+    return "unknown";
+  }
+}
+
 export function useLocalLLM(
   options: UseLocalLLMOptions = {}
 ): UseLocalLLMResult {
-  // SAFETY: native `getAvailability()` returns one of the `ModelAvailability`
-  // string literals; the bridge only types it as `string`.
-  const [availability, setAvailability] = useState<ModelAvailability>(() =>
-    ExpoLocalLlmModule
-      ? (ExpoLocalLlmModule.getAvailability() as ModelAvailability)
-      : "unknown"
-  );
+  const [availability, setAvailability] =
+    useState<ModelAvailability>(readAvailability);
+  const [session, setSession] = useState<LLMSession | null>(null);
+  const [creationError, setCreationError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [streamedText, setStreamedText] = useState("");
   const [streamedJSON, setStreamedJSON] = useState("");
@@ -51,6 +73,8 @@ export function useLocalLLM(
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const [activeToolCalls, setActiveToolCalls] = useState<ActiveToolCall[]>([]);
+  const activeRequestRef = useRef<ActiveRequest | null>(null);
+  const lifecycleEpochRef = useRef(0);
 
   // Keep a ref to the current tool handlers so the event listener
   // always sees the latest handlers without needing to recreate the session.
@@ -104,30 +128,43 @@ export function useLocalLLM(
 
   const isJSONMode = options.responseFormat === "json" && !!options.schema;
 
-  const sessionResult = useMemo<{
-    session: LLMSession | null;
-    creationError: string | null;
-  }>(() => {
-    if (!ExpoLocalLlmModule) return { session: null, creationError: null };
+  // Native shared objects have lifecycle side effects, so create them only
+  // after commit. Creating in render/useMemo leaks sessions when React
+  // abandons a render (notably under StrictMode).
+  useEffect(() => {
+    const nativeModule = ExpoLocalLlmModule;
+    if (!nativeModule) return;
+    let nextSession: LLMSession | null = null;
     try {
-      return { session: createLLMSession(stableConfig), creationError: null };
+      nextSession = createLLMSession(stableConfig);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- The native session is an effect-owned external resource; publishing it synchronously after acquisition prevents consumers from observing a not-yet-created handle.
+      setCreationError(null);
+      setIsGenerating(false);
+      setActiveToolCalls([]);
+      setSession(nextSession);
     } catch (e: any) {
-      return {
-        session: null,
-        creationError: e.message ?? "Failed to create LLM session",
-      };
+      setSession(null);
+      setCreationError(e.message ?? "Failed to create LLM session");
     }
+    return () => {
+      if (activeRequestRef.current?.session === nextSession) {
+        lifecycleEpochRef.current += 1;
+        activeRequestRef.current = null;
+      }
+      nextSession?.release();
+    };
   }, [stableConfig]);
-  const session = sessionResult.session;
-  const error = sessionResult.creationError ?? runtimeError;
+  const error = creationError ?? runtimeError;
 
   useEffect(() => {
-    if (!ExpoLocalLlmModule) return;
+    const nativeModule = ExpoLocalLlmModule;
+    if (!nativeModule) return;
 
     const subs: { remove(): void }[] = [];
+    let disposed = false;
 
     subs.push(
-      ExpoLocalLlmModule.addListener(
+      nativeModule.addListener(
         "downloadProgress",
         (event: DownloadProgress) => {
           setDownloadProgress(event.progress);
@@ -135,19 +172,57 @@ export function useLocalLLM(
       )
     );
     subs.push(
-      ExpoLocalLlmModule.addListener("availabilityChange", (event) => {
+      nativeModule.addListener("availabilityChange", (event) => {
         setAvailability(event.availability);
       })
     );
 
+    const refreshAvailability = () => {
+      try {
+        // SAFETY: native implementations return the documented availability union.
+        setAvailability(nativeModule.getAvailability() as ModelAvailability);
+      } catch (error: unknown) {
+        setAvailability("unknown");
+        setRuntimeError(
+          error instanceof Error
+            ? error.message
+            : "Failed to refresh model availability"
+        );
+      }
+    };
+    const { AppState } = require("react-native");
+    subs.push(
+      AppState.addEventListener("change", (state: string) => {
+        if (state === "active") refreshAvailability();
+      })
+    );
+
+    // Subscribe first so a fast native transition caused by this synchronous
+    // check cannot be missed between the check and listener installation.
+    refreshAvailability();
+
     if (session) {
+      const hasCurrentRequest = (requestId: string | undefined) => {
+        const request = activeRequestRef.current;
+        return (
+          !!requestId &&
+          request?.id === requestId &&
+          request.session === session &&
+          request.epoch === lifecycleEpochRef.current
+        );
+      };
+      const hasCurrentStream = (requestId: string | undefined) =>
+        activeRequestRef.current?.kind === "stream" &&
+        hasCurrentRequest(requestId);
       subs.push(
         session.addListener("token", (event: TokenEvent) => {
+          if (!hasCurrentStream(event.requestId)) return;
           setStreamedText(event.accumulated);
         })
       );
       subs.push(
         session.addListener("partial", (event: PartialEvent) => {
+          if (!hasCurrentStream(event.requestId)) return;
           setStreamedJSON(event.json);
           try {
             setStreamedObject(JSON.parse(event.json));
@@ -158,6 +233,7 @@ export function useLocalLLM(
       );
       subs.push(
         session.addListener("streamComplete", (event: StreamCompleteEvent) => {
+          if (!hasCurrentStream(event.requestId)) return;
           if (isJSONMode) {
             setStreamedJSON(event.text);
             try {
@@ -168,23 +244,26 @@ export function useLocalLLM(
           } else {
             setStreamedText(event.text);
           }
-          setIsGenerating(false);
         })
       );
       subs.push(
         session.addListener("streamError", (event: StreamErrorEvent) => {
+          if (!hasCurrentStream(event.requestId)) return;
           setRuntimeError(event.error);
-          setIsGenerating(false);
         })
       );
 
       // Tool call event listener
       subs.push(
         session.addListener("toolCall", (event: ToolCallEvent) => {
+          if (disposed || !hasCurrentRequest(event.requestId)) return;
+          const request = activeRequestRef.current;
+          if (!request) return;
           const activeCall = { callId: event.callId, toolName: event.toolName };
           setActiveToolCalls((prev) => [...prev, activeCall]);
 
           const removeActiveCall = () => {
+            if (!hasCurrentRequest(request.id)) return;
             setActiveToolCalls((prev) =>
               prev.filter((c) => c.callId !== event.callId)
             );
@@ -223,10 +302,12 @@ export function useLocalLLM(
 
           result
             .then((value) => {
+              if (disposed || !hasCurrentRequest(request.id)) return;
               removeActiveCall();
               session.resolveToolCall(event.callId, value);
             })
             .catch((e: any) => {
+              if (disposed || !hasCurrentRequest(request.id)) return;
               removeActiveCall();
               try {
                 session.rejectToolCall(
@@ -242,8 +323,8 @@ export function useLocalLLM(
     }
 
     return () => {
+      disposed = true;
       subs.forEach((s) => s.remove());
-      session?.release();
     };
     // isJSONMode: used by the streamComplete listener. Today it can only
     // change together with a session recreation (responseFormat/schema are
@@ -254,16 +335,37 @@ export function useLocalLLM(
   const respond = useCallback(
     async (prompt: string): Promise<string> => {
       if (!session) throw new Error("Session not available");
+      if (activeRequestRef.current) {
+        throw new Error("An LLM request is already in progress");
+      }
+      const request: ActiveRequest = {
+        id: createRequestId(),
+        epoch: lifecycleEpochRef.current,
+        kind: "respond",
+        session,
+      };
+      activeRequestRef.current = request;
       setRuntimeError(null);
       setIsGenerating(true);
       try {
-        const result = await session.respond(prompt);
+        const result = await session.respond(prompt, request.id);
         return result;
-      } catch (e: any) {
-        setRuntimeError(e.message);
-        throw e;
+      } catch (error: unknown) {
+        if (activeRequestRef.current === request) {
+          setRuntimeError(
+            error instanceof Error ? error.message : "Generation failed"
+          );
+        }
+        throw error;
       } finally {
-        setIsGenerating(false);
+        if (
+          activeRequestRef.current === request &&
+          lifecycleEpochRef.current === request.epoch
+        ) {
+          activeRequestRef.current = null;
+          setActiveToolCalls([]);
+          setIsGenerating(false);
+        }
       }
     },
     [session]
@@ -272,6 +374,16 @@ export function useLocalLLM(
   const streamResponse = useCallback(
     async (prompt: string): Promise<string> => {
       if (!session) throw new Error("Session not available");
+      if (activeRequestRef.current) {
+        throw new Error("An LLM request is already in progress");
+      }
+      const request: ActiveRequest = {
+        id: createRequestId(),
+        epoch: lifecycleEpochRef.current,
+        kind: "stream",
+        session,
+      };
+      activeRequestRef.current = request;
       setRuntimeError(null);
       setStreamedText("");
       setStreamedJSON("");
@@ -280,25 +392,53 @@ export function useLocalLLM(
       try {
         // Resolves with the final text at stream end (or the partial text
         // if cancelled); rejects if the stream fails.
-        return await session.streamResponse(prompt);
-      } catch (e: any) {
-        setRuntimeError(e.message);
-        throw e;
+        const result = await session.streamResponse(prompt, request.id);
+        if (
+          activeRequestRef.current === request &&
+          lifecycleEpochRef.current === request.epoch
+        ) {
+          if (isJSONMode) {
+            setStreamedJSON(result);
+            try {
+              setStreamedObject(JSON.parse(result));
+            } catch {
+              // Native structured output errors are surfaced by the promise.
+            }
+          } else {
+            setStreamedText(result);
+          }
+        }
+        return result;
+      } catch (error: unknown) {
+        if (activeRequestRef.current === request) {
+          setRuntimeError(
+            error instanceof Error ? error.message : "Streaming failed"
+          );
+        }
+        throw error;
       } finally {
-        setIsGenerating(false);
+        if (
+          activeRequestRef.current === request &&
+          lifecycleEpochRef.current === request.epoch
+        ) {
+          activeRequestRef.current = null;
+          setActiveToolCalls([]);
+          setIsGenerating(false);
+        }
       }
     },
-    [session]
+    [session, isJSONMode]
   );
 
   const cancelStream = useCallback(async (): Promise<void> => {
     if (!session) return;
     await session.cancelStream();
-    setIsGenerating(false);
   }, [session]);
 
   const reset = useCallback((): void => {
     if (!session) return;
+    lifecycleEpochRef.current += 1;
+    activeRequestRef.current = null;
     session.reset();
     setStreamedText("");
     setStreamedJSON("");
@@ -315,14 +455,14 @@ export function useLocalLLM(
 
   if (!ExpoLocalLlmModule) {
     return {
-      availability: "notEligible",
+      availability: "moduleUnavailable",
       session: null,
       isGenerating: false,
       streamedText: "",
       streamedJSON: "",
       streamedObject: null,
       downloadProgress: null,
-      error: null,
+      error: getModuleDiagnostics().message,
       activeToolCalls: [],
     };
   }
@@ -340,8 +480,7 @@ export function useLocalLLM(
     respond: session && availability === "available" ? respond : undefined,
     streamResponse:
       session && availability === "available" ? streamResponse : undefined,
-    cancelStream:
-      session && availability === "available" ? cancelStream : undefined,
+    cancelStream: session ? cancelStream : undefined,
     // Resetting is safe in any availability state — gate on session only.
     reset: session ? reset : undefined,
     downloadModel,

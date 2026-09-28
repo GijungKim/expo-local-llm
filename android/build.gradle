@@ -32,5 +32,8 @@ android {
 }
 
 dependencies {
-  implementation 'com.google.ai.edge.localagent:localagent:0.1.0'
+  // beta3+ uses Kotlin 2.3 metadata and stdlib, which Expo 57's Kotlin 2.1
+  // compiler cannot consume. beta2 is the newest release with supported 2.2
+  // metadata and its declared Kotlin 1.8 runtime dependency remains intact.
+  implementation 'com.google.mlkit:genai-prompt:1.0.0-beta2'
 }
