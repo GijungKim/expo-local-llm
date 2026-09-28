@@ -58,6 +58,23 @@ adb -s <serial> reverse tcp:8081 tcp:8081
 adb -s <serial> shell am start -n <applicationId>/.MainActivity
 ```
 
+## Android build fails on JDK 24 or newer
+
+Native configuration fails with:
+
+```
+Execution failed for task ':app:configureCMakeDebug[x86_64]'.
+> WARNING: A restricted method in java.lang.System has been called
+```
+
+JDK 24 began restricting native access (JEP 472) and Gradle's CMake configure step trips it. Either use JDK 17–21, or keep JDK 24+ and opt in:
+
+```sh
+JAVA_TOOL_OPTIONS=--enable-native-access=ALL-UNNAMED npx expo run:android
+```
+
+This is a property of the Android toolchain on this Expo SDK rather than of this library, so it applies to any project built the same way.
+
 ## Model not ready
 
 | Availability | Meaning / next step |
