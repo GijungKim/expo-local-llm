@@ -30,9 +30,21 @@ resolution is reproducible through the two committed Bun lockfiles.
 
 `android.sh` runs `:app:assembleDebug`, compiling all autolinked native modules
 and packaging a development APK. It also requires Gradle to expose the
-`:expo-local-llm` project and execute its Kotlin compilation task. `ios.sh`
-performs a signing-disabled Debug build for a generic iOS Simulator destination,
-compiling and linking the Swift module against the Xcode 26 SDK.
+`:expo-local-llm` project, execute its Kotlin compilation task, and produce JVM
+unit test results. `ios.sh` performs a signing-disabled Debug build for a generic
+iOS Simulator destination, compiling and linking the Swift module against the
+Xcode 26 SDK.
+
+The Android JVM tests cover library logic that does not need the model runtime —
+prompt assembly and conversation trimming — because the generation path itself
+cannot run without an AICore-capable device. Gradle reports a task with no
+matching sources as `NO-SOURCE` and still passes, so the check asserts that test
+result files exist instead of trusting the task outcome.
+
+The example depends on the package through `file:..`, which materializes as a
+directory of symlinks back into the repository. Edits to existing files are
+therefore picked up immediately, but a newly added file needs a reinstall before
+Gradle can see it; `prepare-example.sh` always reinstalls.
 
 Preparation validates Expo's resolved module metadata on both platforms. The
 iOS check additionally requires the pod lock, generated `ExpoModulesProvider`,

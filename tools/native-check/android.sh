@@ -13,7 +13,7 @@ cd "$root/example/android"
 readonly gradle_log="$(mktemp "${TMPDIR:-/tmp}/expo-local-llm-gradle.XXXXXX")"
 trap 'rm -f "$gradle_log"' EXIT
 
-./gradlew projects :expo-local-llm:compileDebugKotlin :app:assembleDebug \
+./gradlew projects :expo-local-llm:compileDebugKotlin :expo-local-llm:testDebugUnitTest :app:assembleDebug \
   --no-daemon \
   --stacktrace \
   --console=plain \
@@ -26,6 +26,24 @@ grep -Fq "Project ':expo-local-llm'" "$gradle_log" || {
 
 grep -Eq '^> Task :expo-local-llm:compileDebugKotlin($| )' "$gradle_log" || {
   echo "Gradle did not compile the expo-local-llm Kotlin module" >&2
+  exit 1
+}
+
+# Gradle passes a task with no matching sources as NO-SOURCE, so assert that
+# unit test results were actually produced rather than trusting the task.
+test_results=""
+for build_dir in "$root/android/build" "$root/example/node_modules/expo-local-llm/android/build"; do
+  if [[ -d "$build_dir" ]]; then
+    test_results="$(find "$build_dir/test-results/testDebugUnitTest" \
+      -name 'TEST-*.xml' -print -quit 2>/dev/null)"
+    if [[ -n "$test_results" ]]; then
+      break
+    fi
+  fi
+done
+
+[[ -n "$test_results" ]] || {
+  echo "No JVM unit test results were produced for expo-local-llm" >&2
   exit 1
 }
 
