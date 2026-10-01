@@ -55,7 +55,7 @@ jobs:
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"
 
       - name: Set up Gradle cache
-        uses: gradle/actions/setup-gradle@v5
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Build package and generate Android project
         run: tools/native-check/prepare-example.sh android
