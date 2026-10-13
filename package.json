@@ -51,7 +51,7 @@
     "@react-native/jest-preset": "0.86.3",
     "@types/react": "~19.2.4",
     "@types/react-test-renderer": "19.1.0",
-    "eslint": "10.11.0",
+    "eslint": "10.12.0",
     "expo": "~57.0.28",
     "expo-module-scripts": "^56.0.2",
     "expo-modules-core": "~57.0.22",
