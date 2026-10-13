@@ -47,7 +47,7 @@
   "license": "MIT",
   "homepage": "https://github.com/GijungKim/expo-local-llm#readme",
   "devDependencies": {
-    "@oxlint/plugins": "1.86.0",
+    "@oxlint/plugins": "1.88.0",
     "@react-native/jest-preset": "0.86.3",
     "@types/react": "~19.2.4",
     "@types/react-test-renderer": "19.1.0",
@@ -57,7 +57,7 @@
     "expo-modules-core": "~57.0.22",
     "jest-expo": "~57.0.6",
     "knip": "6.38.0",
-    "oxlint": "1.86.0",
+    "oxlint": "1.88.0",
     "react": "19.2.3",
     "react-native": "0.86.3",
     "react-test-renderer": "19.2.3",
