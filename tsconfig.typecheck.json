@@ -3,6 +3,10 @@
   "compilerOptions": {
     "noEmit": true
   },
-  "include": ["src/__tests__/inference.typecheck.ts"],
+  "include": [
+    "src/__tests__/inference.typecheck.ts",
+    "src/__tests__/useLocalLLM.test.ts",
+    "src/__tests__/useLocalLLM.native.test.ts"
+  ],
   "exclude": []
 }
