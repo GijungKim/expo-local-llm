@@ -8,7 +8,7 @@
         "@oxlint/plugins": "1.86.0",
         "@react-native/jest-preset": "0.86.3",
         "@types/react": "~19.2.4",
-        "@types/react-test-renderer": "19.1.0",
+        "@types/react-test-renderer": "19.3.0",
         "eslint": "10.11.0",
         "expo": "~57.0.28",
         "expo-module-scripts": "^56.0.2",
@@ -617,7 +617,7 @@
 
     "@types/react": ["@types/react@19.2.18", "", { "dependencies": { "csstype": "^3.2.2" } }, "sha512-AnzbBERsrLKtk2XSfTbYRLjQPdy116Sty4q+T+Bp3IC4l6jNBvreVPAHmpq9qhXQM7CXZPjLVmGMw9sy+hxQ3w=="],
 
-    "@types/react-test-renderer": ["@types/react-test-renderer@19.1.0", "", { "dependencies": { "@types/react": "*" } }, "sha512-XD0WZrHqjNrxA/MaR9O22w/RNidWR9YZmBdRGI7wcnWGrv/3dA8wKCJ8m63Sn+tLJhcjmuhOi629N66W6kgWzQ=="],
+    "@types/react-test-renderer": ["@types/react-test-renderer@19.3.0", "", { "dependencies": { "@types/react": "*" } }, "sha512-TX4p2D4Z2oigM3SXU7+QyLSUnSR0vR1S1Pfxm/qFL9nHQ3jclgi6ioGoWQmlIr1DeKRVmPJrmNlhgM0JlWlLUg=="],
 
     "@types/stack-utils": ["@types/stack-utils@2.0.3", "", {}, "sha512-9aEbYZ3TbYMznPdcdr3SmIrLXwC/AKZXQeCf9Pgao5CKb8CyHuEX5jzWPTkvregvhRJHcpRO6BFoGW9ycaOkYw=="],
 
