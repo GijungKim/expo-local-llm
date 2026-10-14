@@ -1,4 +1,4 @@
-import { generateObject, useLocalLLM } from "../index";
+import { defineTool, generateObject, useLocalLLM } from "../index";
 
 type Equal<Left, Right> = (<Value>() => Value extends Left ? 1 : 2) extends <
   Value
@@ -78,4 +78,42 @@ function useHookInference() {
   return { completedIsExact, streamedIsPartial, streamedMood, unknownCode };
 }
 
-export { verifyGenerateObjectInference, useHookInference };
+function useToolInference() {
+  const getWeather = defineTool({
+    name: "getWeather",
+    description: "Get the current weather",
+    parameters: {
+      city: { type: "string", description: "City" },
+      unit: { type: "string", description: "Unit", enum: ["c", "f"] },
+      days: { type: "number", description: "Forecast days" },
+      detailed: { type: "boolean", description: "Include hourly data" },
+    },
+    handler: async (args) => {
+      type ArgsAreExact = Expect<
+        Equal<
+          typeof args,
+          { city: string; unit: "c" | "f"; days: number; detailed: boolean }
+        >
+      >;
+      const argsAreExact: ArgsAreExact = true;
+      // @ts-expect-error Enum parameters must not widen to arbitrary strings.
+      const invalidUnit: "k" = args.unit;
+      return `${args.city} ${argsAreExact} ${invalidUnit}`;
+    },
+  });
+
+  // A typed tool still fits the general tools array.
+  const config = useLocalLLM({ tools: [getWeather] });
+
+  defineTool({
+    name: "broken",
+    description: "Mismatched handler",
+    parameters: { count: { type: "number", description: "Count" } },
+    // @ts-expect-error A number parameter is not a string.
+    handler: async (args: { count: string }) => args.count,
+  });
+
+  return config;
+}
+
+export { verifyGenerateObjectInference, useHookInference, useToolInference };

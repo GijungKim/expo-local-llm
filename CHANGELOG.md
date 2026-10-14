@@ -4,6 +4,7 @@
 
 - Add stable error codes on both platforms. Generation failures (context window exceeded, guardrail violation, refusal, rate limiting, unavailable model, and others) reject with a `LocalLLMErrorCode`, `streamError` events carry `code`, and the hook exposes `errorCode`. Read a caught error's code with `getLocalLLMErrorCode()`.
 - Constrain iOS tool-call arguments to each tool's `parameters` with Foundation Models' schema-guided decoding, the same mechanism as structured output. Arguments the model produces now always match the declared types and enums; previously the model wrote free-form JSON inside a string and unparseable arguments reached handlers as `{}`.
+- Add `defineTool()`, which types a tool handler's arguments from its `parameters` (string enums become literal unions). `ToolArguments` is now `Record<string, string | number | boolean>` instead of `Record<string, unknown>`, and `ToolParameter.enum` accepts readonly arrays.
 - Validate the final JSON of hook `respond` and `streamResponse` calls in JSON mode, as `generateObject()` already did, and expose the result as `completedObject`, typed from the schema. `streamedObject` is now typed from the schema with every field optional.
 - Report Android as `experimental` in `getCapabilities()` until generation is validated on Gemini Nano hardware.
 - Neutralise `[System]`/`[User]`/`[Assistant]` markers in Android conversation text so a message cannot impersonate instructions or another turn in the flat Gemini Nano prompt.

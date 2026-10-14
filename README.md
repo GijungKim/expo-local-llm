@@ -217,24 +217,28 @@ const answer = generateEffect('Summarise my notes').pipe(
 ### Tool Calling (iOS 26+)
 
 ```tsx
-import { useLocalLLM } from 'expo-local-llm';
+import { defineTool, useLocalLLM } from 'expo-local-llm';
+
+const getWeather = defineTool({
+  name: 'getWeather',
+  description: 'Get the current weather for a city',
+  parameters: {
+    city: { type: 'string', description: 'The city name' },
+    unit: { type: 'string', description: 'Temperature unit', enum: ['celsius', 'fahrenheit'] },
+  },
+  // Typed from `parameters`: city is a string, unit is 'celsius' | 'fahrenheit'.
+  handler: async ({ city, unit }) => {
+    const res = await fetch(
+      `https://api.example.com/weather?city=${encodeURIComponent(city)}&unit=${unit}`
+    );
+    return JSON.stringify(await res.json());
+  },
+});
 
 function WeatherChat() {
   const { streamResponse, streamedText, activeToolCalls, error } = useLocalLLM({
     instructions: 'You are a helpful weather assistant.',
-    tools: [
-      {
-        name: 'getWeather',
-        description: 'Get the current weather for a city',
-        parameters: {
-          city: { type: 'string', description: 'The city name' },
-        },
-        handler: async ({ city }) => {
-          const res = await fetch(`https://api.example.com/weather?city=${encodeURIComponent(String(city))}`);
-          return JSON.stringify(await res.json());
-        },
-      },
-    ],
+    tools: [getWeather],
   });
 
   return (
@@ -247,6 +251,8 @@ function WeatherChat() {
   );
 }
 ```
+
+`defineTool()` infers the handler's argument types from `parameters`; it returns the tool unchanged. Tools written inline in `tools` still work, with arguments typed as `Record<string, string | number | boolean>`.
 
 Tool arguments use the same constrained decoding as structured output: the model fills in a schema built from `parameters`, so every declared parameter arrives with its declared type and any `enum` is respected. Validate values whose meaning matters (ranges, formats) as you would any input. If a handler throws or times out, the turn rejects with `ERR_TOOL_FAILED`.
 
