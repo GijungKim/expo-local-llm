@@ -10,11 +10,11 @@ import type {
 } from "./ExpoLocalLlm.types";
 import ExpoLocalLlmModule from "./ExpoLocalLlmModule";
 import { getCapabilities, getModuleDiagnostics } from "./capabilities";
+import { LocalLLMError } from "./errors";
 import {
+  parseStructuredOutput,
   validateSchema,
-  validateStructuredOutput,
   SchemaInvalidError,
-  StructuredOutputValidationError,
 } from "./validateSchema";
 
 export class NativeModuleUnavailableError extends UnavailabilityError {
@@ -95,7 +95,8 @@ export async function generate(
   config: SessionConfig = {}
 ): Promise<string> {
   if (config.tools?.length) {
-    throw new Error(
+    throw new LocalLLMError(
+      "ERR_UNSUPPORTED_REQUEST",
       "generate() does not support tools because one-shot generation cannot service tool-call handlers. Use useLocalLLM() instead."
     );
   }
@@ -116,7 +117,8 @@ export async function generateObject<const Definition extends Schema>(
     if (capabilities.status === "moduleUnavailable") {
       throw new NativeModuleUnavailableError("generateObject");
     }
-    throw new Error(
+    throw new LocalLLMError(
+      "ERR_RESPONSE_FORMAT_NOT_SUPPORTED",
       `Structured output is not supported on ${capabilities.platform}.`
     );
   }
@@ -126,24 +128,5 @@ export async function generateObject<const Definition extends Schema>(
     responseFormat: "json",
     schema: config.schema,
   });
-  let value: unknown;
-  try {
-    value = JSON.parse(text);
-  } catch (error) {
-    throw new StructuredOutputValidationError([
-      {
-        path: "$",
-        message: `expected valid JSON (${
-          error instanceof Error ? error.message : "parse failed"
-        })`,
-      },
-    ]);
-  }
-  const validation = validateStructuredOutput(value, config.schema);
-  if (!validation.ok) {
-    throw new StructuredOutputValidationError(validation.errors);
-  }
-  // SAFETY: validateStructuredOutput recursively checked every field against
-  // Definition immediately above, including nested containers and enums.
-  return value as InferSchema<Definition>;
+  return parseStructuredOutput(text, config.schema);
 }

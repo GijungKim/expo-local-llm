@@ -1,4 +1,4 @@
-import type { Schema, SchemaField } from "./ExpoLocalLlm.types";
+import type { InferSchema, Schema, SchemaField } from "./ExpoLocalLlm.types";
 
 export type SchemaValidationError = {
   path: string;
@@ -10,6 +10,7 @@ export type SchemaValidationResult =
   | { ok: false; errors: SchemaValidationError[] };
 
 export class SchemaInvalidError extends Error {
+  readonly code = "ERR_SCHEMA_INVALID";
   readonly errors: SchemaValidationError[];
   constructor(errors: SchemaValidationError[]) {
     const summary = errors.map((e) => `  - ${e.path}: ${e.message}`).join("\n");
@@ -20,6 +21,7 @@ export class SchemaInvalidError extends Error {
 }
 
 export class StructuredOutputValidationError extends Error {
+  readonly code = "ERR_STRUCTURED_OUTPUT_INVALID";
   readonly errors: SchemaValidationError[];
   constructor(errors: SchemaValidationError[]) {
     const summary = errors.map((e) => `  - ${e.path}: ${e.message}`).join("\n");
@@ -228,6 +230,37 @@ export function validateStructuredOutput(
     }
   }
   return errors.length === 0 ? { ok: true } : { ok: false, errors };
+}
+
+/**
+ * Parse a structured-output response and check it against the schema. Native
+ * decoding is constrained, but the result is still verified before it is
+ * typed as the schema's shape.
+ */
+export function parseStructuredOutput<const Definition extends Schema>(
+  text: string,
+  schema: Definition
+): InferSchema<Definition> {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch (error) {
+    throw new StructuredOutputValidationError([
+      {
+        path: "$",
+        message: `expected valid JSON (${
+          error instanceof Error ? error.message : "parse failed"
+        })`,
+      },
+    ]);
+  }
+  const validation = validateStructuredOutput(value, schema);
+  if (!validation.ok) {
+    throw new StructuredOutputValidationError(validation.errors);
+  }
+  // SAFETY: validateStructuredOutput recursively checked every field against
+  // Definition immediately above, including nested containers and enums.
+  return value as InferSchema<Definition>;
 }
 
 // Re-export Schema so callers building schemas at runtime have one import surface.

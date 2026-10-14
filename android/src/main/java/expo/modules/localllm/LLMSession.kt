@@ -95,16 +95,16 @@ class LLMSession(
             }
             DownloadStatus.DownloadCompleted -> onProgress(1f)
             is DownloadStatus.DownloadFailed -> {
-              throw StreamException("Failed to download model: ${status.e.message}")
+              throw ModelDownloadException("Failed to download model: ${status.e.message}")
             }
           }
         }
       } catch (e: CancellationException) {
         throw e
-      } catch (e: StreamException) {
+      } catch (e: ModelDownloadException) {
         throw e
       } catch (e: Exception) {
-        throw StreamException("Failed to download model: ${e.message}")
+        throw ModelDownloadException("Failed to download model: ${e.message}")
       } finally {
         client?.close()
       }
@@ -193,8 +193,10 @@ class LLMSession(
           history.addExchange(prompt, text)
         }
         completion.complete(text)
-      } catch (error: Throwable) {
+      } catch (error: CancellationException) {
         completion.completeExceptionally(error)
+      } catch (error: Exception) {
+        completion.completeExceptionally(generationException(error))
       }
     }
     job.invokeOnCompletion { error ->
@@ -265,15 +267,17 @@ class LLMSession(
       } catch (error: CancellationException) {
         completion.complete(accumulated)
       } catch (error: Exception) {
+        val failure = generationException(error)
         synchronized(stateLock) {
           if (isCurrentLocked(generation)) {
             emit("streamError", mapOf(
-              "error" to (error.message ?: "Unknown error"),
+              "error" to failure.message,
+              "code" to failure.code,
               "requestId" to generation.requestId
             ))
           }
         }
-        completion.completeExceptionally(StreamException(error.message ?: "Unknown error"))
+        completion.completeExceptionally(failure)
       }
     }
     job.invokeOnCompletion { error ->
@@ -281,7 +285,9 @@ class LLMSession(
         if (error is CancellationException) {
           completion.complete("")
         } else {
-          completion.completeExceptionally(error ?: StreamException("Stream ended without a result"))
+          completion.completeExceptionally(
+            error ?: GenerationException(LocalLLMErrorCode.GENERATION_FAILED, "Stream ended without a result", null)
+          )
         }
       }
     }

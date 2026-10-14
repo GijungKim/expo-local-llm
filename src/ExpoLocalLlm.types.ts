@@ -8,6 +8,53 @@ export type ModelAvailability =
   | "downloading"
   | "unknown";
 
+/**
+ * Stable codes carried by every error this library raises, on both platforms.
+ * Branch on these rather than on messages, which come from the OS and change.
+ * Read one from any caught error with `getLocalLLMErrorCode`.
+ */
+export type LocalLLMErrorCode =
+  /** The conversation no longer fits the model's context window. Reset or start a new session. */
+  | "ERR_CONTEXT_WINDOW_EXCEEDED"
+  /** The platform's safety guardrails blocked the prompt or the response. */
+  | "ERR_GUARDRAIL_VIOLATION"
+  /** The model declined to answer. */
+  | "ERR_REFUSAL"
+  /** The prompt's language or the device locale is not supported by the model. */
+  | "ERR_UNSUPPORTED_LANGUAGE"
+  /** The request uses a schema feature or capability the model cannot honour. */
+  | "ERR_UNSUPPORTED_REQUEST"
+  /** The system is throttling generation (quota, background use, or load). Retry later. */
+  | "ERR_RATE_LIMITED"
+  /** The model's assets are missing or the device cannot run it right now. */
+  | "ERR_MODEL_UNAVAILABLE"
+  /** The model's output could not be decoded into the requested structure. */
+  | "ERR_DECODING_FAILED"
+  /** Generation took longer than the system allows. */
+  | "ERR_TIMEOUT"
+  /** A tool call failed: the handler threw, timed out, or was unregistered. */
+  | "ERR_TOOL_FAILED"
+  /** Any other generation failure. */
+  | "ERR_GENERATION_FAILED"
+  /** This session already has a generation in progress. */
+  | "ERR_SESSION_BUSY"
+  /** The session was released or never initialised. */
+  | "ERR_SESSION_INVALID"
+  /** On-device generation is not available on this OS version. */
+  | "ERR_NOT_SUPPORTED"
+  /** `responseFormat: "json"` is not supported on this platform. */
+  | "ERR_RESPONSE_FORMAT_NOT_SUPPORTED"
+  /** Tool calling is not supported on this platform. */
+  | "ERR_TOOL_NOT_SUPPORTED"
+  /** Android only: downloading Gemini Nano failed. */
+  | "ERR_MODEL_DOWNLOAD_FAILED"
+  /** The schema passed to a session or `generateObject` is malformed. */
+  | "ERR_SCHEMA_INVALID"
+  /** The generated JSON did not match the schema. */
+  | "ERR_STRUCTURED_OUTPUT_INVALID"
+  /** The native module is missing from this build (Expo Go, or not rebuilt). */
+  | "ERR_UNAVAILABLE";
+
 export type GenerationOptions = {
   temperature?: number;
   maxTokens?: number;
@@ -25,10 +72,11 @@ export type ToolParameter = {
 };
 
 /**
- * Arguments the model supplied for a tool call, parsed from the JSON it
- * produced. The values are NOT validated against the tool's declared
- * `parameters` — the model may omit fields, add extras, or use a different
- * primitive type — so handlers should treat them as untrusted input.
+ * Arguments the model supplied for a tool call. On iOS the model's decoding is
+ * constrained to the tool's declared `parameters`, so every declared field is
+ * present with its declared type and enum values are respected. Handlers
+ * should still validate values that carry meaning (ranges, formats), as they
+ * would for any other input.
  */
 export type ToolArguments = Record<string, unknown>;
 
@@ -97,6 +145,16 @@ export type InferSchema<Definition extends Schema> = {
   -readonly [Key in keyof Definition]: InferSchemaField<Definition[Key]>;
 };
 
+/**
+ * An object still being generated: any field, at any depth, may be missing
+ * until the model reaches it.
+ */
+export type DeepPartial<Value> = Value extends readonly (infer Item)[]
+  ? DeepPartial<Item>[]
+  : Value extends object
+  ? { [Key in keyof Value]?: DeepPartial<Value[Key]> }
+  : Value;
+
 export type GenerateObjectConfig<Definition extends Schema> = Omit<
   SessionConfig,
   "responseFormat" | "schema" | "tools"
@@ -133,6 +191,11 @@ export type LocalLLMCapabilities = {
   tools: boolean;
   structuredOutput: boolean;
   structuredOutputMode: "constrained" | "unsupported";
+  /**
+   * True where generation has not been verified on real hardware. Android is
+   * experimental until Gemini Nano generation is validated on a device.
+   */
+  experimental: boolean;
 };
 
 export type SessionConfig = {
@@ -165,6 +228,7 @@ export type PartialEvent = {
 export type StreamErrorEvent = {
   requestId?: string;
   error: string;
+  code: LocalLLMErrorCode;
 };
 
 export type DownloadProgress = {

@@ -53,6 +53,7 @@ class LLMSession: SharedObject {
   private var registeredTools: [String: Any] = [:]  // name -> DynamicTool (type-erased)
   private var continuationStore: Any?  // ToolContinuationStore (type-erased for availability)
   private var toolConfigs: [ToolConfig] = []
+  private var toolSchemas: [String: Any] = [:]  // name -> GenerationSchema (type-erased)
   private var sessionInstructions: String?
   private var toolTimeout: TimeInterval = 30
   private var generationSchema: Any?  // GenerationSchema (type-erased for availability)
@@ -85,7 +86,13 @@ class LLMSession: SharedObject {
       generationSchema = try GenerationSchemaBuilder.build(properties: schemaDict)
     }
 
-    toolConfigs = config.tools ?? []
+    let tools = config.tools ?? []
+    var schemas: [String: Any] = [:]
+    for tool in tools {
+      schemas[tool.name] = try DynamicTool.parameterSchema(toolName: tool.name, parameters: tool.parameters)
+    }
+    toolConfigs = tools
+    toolSchemas = schemas
     stateLock.lock()
     rebuildSessionLocked()
     stateLock.unlock()
@@ -111,8 +118,9 @@ class LLMSession: SharedObject {
 
   // MARK: - Tool Management
 
-  func registerTool(config: ToolConfig) {
+  func registerTool(config: ToolConfig) throws {
     guard #available(iOS 26, *) else { return }
+    let schema = try DynamicTool.parameterSchema(toolName: config.name, parameters: config.parameters)
 
     stateLock.lock()
     guard !disposed else {
@@ -121,6 +129,7 @@ class LLMSession: SharedObject {
     }
     toolConfigs.removeAll { $0.name == config.name }
     toolConfigs.append(config)
+    toolSchemas[config.name] = schema
     let task = invalidateForRebuildLocked(preservingTranscript: true)
     stateLock.unlock()
     task?.cancel()
@@ -135,6 +144,7 @@ class LLMSession: SharedObject {
       return
     }
     toolConfigs.removeAll { $0.name == name }
+    toolSchemas.removeValue(forKey: name)
     let task = invalidateForRebuildLocked(preservingTranscript: true)
     stateLock.unlock()
     task?.cancel()
@@ -179,17 +189,18 @@ class LLMSession: SharedObject {
     registeredTools.removeAll()
 
     for config in toolConfigs {
+      guard let parameters = toolSchemas[config.name] as? GenerationSchema else { continue }
       let tool = DynamicTool(
         name: config.name,
         description: config.description,
-        parameterSchema: config.parameters,
+        parameters: parameters,
         timeoutSeconds: toolTimeout,
         continuationStore: store
-      ) { [weak self] callId, toolName, argumentsJSON in
+      ) { [weak self] callId, toolName, arguments in
         self?.emitToolCall(
           callId: callId,
           toolName: toolName,
-          argumentsJSON: argumentsJSON,
+          arguments: arguments,
           sessionEpoch: toolEpoch
         ) ?? false
       }
@@ -207,15 +218,9 @@ class LLMSession: SharedObject {
   private func emitToolCall(
     callId: String,
     toolName: String,
-    argumentsJSON: String,
+    arguments: [String: Any],
     sessionEpoch: UInt64
   ) -> Bool {
-    var arguments: [String: Any] = [:]
-    if let data = argumentsJSON.data(using: .utf8),
-       let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-      arguments = parsed
-    }
-
     stateLock.lock()
     guard let activeGeneration,
           activeGeneration.acceptsOutput,
@@ -450,10 +455,16 @@ class LLMSession: SharedObject {
       finish(generation: context.generation)
     }
 
-    return try await withTaskCancellationHandler {
-      (try await task.value).text
-    } onCancel: { [weak self] in
-      self?.cancel(generation: context.generation)
+    do {
+      return try await withTaskCancellationHandler {
+        (try await task.value).text
+      } onCancel: { [weak self] in
+        self?.cancel(generation: context.generation)
+      }
+    } catch let error as CancellationError {
+      throw error
+    } catch {
+      throw GenerationErrorMapper.exception(for: error)
     }
   }
 
@@ -511,12 +522,13 @@ class LLMSession: SharedObject {
       if error is CancellationError || !isActive(generation: context.generation) {
         throw error
       }
+      let exception = GenerationErrorMapper.exception(for: error)
       _ = emitIfActive(
         generation: context.generation,
         event: "streamError",
-        arguments: ["error": error.localizedDescription]
+        arguments: ["error": exception.reason, "code": exception.code]
       )
-      throw StreamException(error.localizedDescription)
+      throw exception
     }
   }
 
