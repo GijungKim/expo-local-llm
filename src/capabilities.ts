@@ -52,6 +52,7 @@ export function getCapabilities(): LocalLLMCapabilities {
       tools: false,
       structuredOutput: false,
       structuredOutputMode: "unsupported",
+      experimental: false,
     };
   }
 
@@ -73,5 +74,6 @@ export function getCapabilities(): LocalLLMCapabilities {
     tools: supported && isIOS,
     structuredOutput: supported && isIOS,
     structuredOutputMode: supported && isIOS ? "constrained" : "unsupported",
+    experimental: !isIOS,
   };
 }

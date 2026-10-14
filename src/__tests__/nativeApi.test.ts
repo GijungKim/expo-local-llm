@@ -4,7 +4,9 @@ import {
   generate,
   generateObject,
   getCapabilities,
+  getLocalLLMErrorCode,
   getModuleDiagnostics,
+  LocalLLMError,
   SchemaInvalidError,
   StructuredOutputValidationError,
 } from "../index";
@@ -69,6 +71,7 @@ describe("native-present API", () => {
       tools: true,
       structuredOutput: true,
       structuredOutputMode: "constrained",
+      experimental: false,
     });
 
     mockPlatform.OS = "android";
@@ -80,6 +83,7 @@ describe("native-present API", () => {
       tools: false,
       structuredOutput: false,
       structuredOutputMode: "unsupported",
+      experimental: true,
     });
 
     mockPlatform.OS = "ios";
@@ -104,6 +108,7 @@ describe("native-present API", () => {
       tools: false,
       structuredOutput: false,
       structuredOutputMode: "unsupported",
+      experimental: false,
     });
   });
 
@@ -195,5 +200,54 @@ describe("native-present API", () => {
       })
     ).rejects.toThrow(/not supported on android/);
     expect(mockSessionConstructor).not.toHaveBeenCalled();
+  });
+
+  it("codes JavaScript-side failures like native ones", async () => {
+    await expect(
+      generate("hello", {
+        tools: [
+          {
+            name: "lookup",
+            description: "Lookup",
+            parameters: {},
+            handler: async () => "",
+          },
+        ],
+      })
+    ).rejects.toMatchObject({ code: "ERR_UNSUPPORTED_REQUEST" });
+
+    mockPlatform.OS = "android";
+    await expect(
+      generateObject("hello", { schema: { name: { type: "string" } } })
+    ).rejects.toMatchObject({ code: "ERR_RESPONSE_FORMAT_NOT_SUPPORTED" });
+
+    expect(() => createLLMSession({ responseFormat: "json" })).toThrow(
+      expect.objectContaining({ code: "ERR_SCHEMA_INVALID" })
+    );
+  });
+});
+
+describe("getLocalLLMErrorCode", () => {
+  it("reads library codes from native and JavaScript errors", () => {
+    expect(
+      getLocalLLMErrorCode(
+        Object.assign(new Error("x"), { code: "ERR_REFUSAL" })
+      )
+    ).toBe("ERR_REFUSAL");
+    expect(
+      getLocalLLMErrorCode(new LocalLLMError("ERR_SESSION_BUSY", "busy"))
+    ).toBe("ERR_SESSION_BUSY");
+    expect(getLocalLLMErrorCode(new StructuredOutputValidationError([]))).toBe(
+      "ERR_STRUCTURED_OUTPUT_INVALID"
+    );
+  });
+
+  it("returns null for other errors", () => {
+    expect(getLocalLLMErrorCode(new Error("plain"))).toBeNull();
+    expect(
+      getLocalLLMErrorCode(
+        Object.assign(new Error("x"), { code: "ERR_SOMETHING_ELSE" })
+      )
+    ).toBeNull();
   });
 });

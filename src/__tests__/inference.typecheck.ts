@@ -1,4 +1,4 @@
-import { generateObject } from "../index";
+import { generateObject, useLocalLLM } from "../index";
 
 type Equal<Left, Right> = (<Value>() => Value extends Left ? 1 : 2) extends <
   Value
@@ -46,4 +46,36 @@ async function verifyGenerateObjectInference() {
   return { moodIsExact, rowsAreExact, invalidMood, invalidCount, invalidRow };
 }
 
-export { verifyGenerateObjectInference };
+function useHookInference() {
+  const { streamedObject, completedObject, errorCode } = useLocalLLM({
+    responseFormat: "json",
+    schema: {
+      mood: { type: "string", enum: ["happy", "sad"] },
+      tags: { type: "array", items: { type: "string" } },
+    },
+  });
+
+  type CompletedIsExact = Expect<
+    Equal<
+      typeof completedObject,
+      { mood: "happy" | "sad"; tags: string[] } | null
+    >
+  >;
+  type StreamedIsPartial = Expect<
+    Equal<
+      typeof streamedObject,
+      { mood?: "happy" | "sad"; tags?: string[] } | null
+    >
+  >;
+  const completedIsExact: CompletedIsExact = true;
+  const streamedIsPartial: StreamedIsPartial = true;
+
+  // @ts-expect-error A streamed field may not have been generated yet.
+  const streamedMood: "happy" | "sad" = streamedObject!.mood;
+  // @ts-expect-error Error codes are a closed union, not arbitrary strings.
+  const unknownCode: typeof errorCode = "ERR_SOMETHING_ELSE";
+
+  return { completedIsExact, streamedIsPartial, streamedMood, unknownCode };
+}
+
+export { verifyGenerateObjectInference, useHookInference };

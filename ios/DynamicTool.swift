@@ -6,6 +6,7 @@ import FoundationModels
 enum DynamicToolError: LocalizedError {
   case timeout
   case handlerFailed(String)
+  case invalidArguments
 
   var errorDescription: String? {
     switch self {
@@ -13,36 +14,30 @@ enum DynamicToolError: LocalizedError {
       return "Tool call timed out waiting for JavaScript response"
     case .handlerFailed(let message):
       return "Tool handler error: \(message)"
+    case .invalidArguments:
+      return "Tool arguments were not a JSON object"
     }
   }
-}
-
-// MARK: - Generable arguments wrapper
-
-/// A fixed @Generable struct that wraps tool parameters as a JSON string.
-/// The tool's description tells the model what JSON shape to produce.
-@available(iOS 26, *)
-@Generable
-struct DynamicArguments {
-  @Guide(description: "A JSON object string containing the tool's parameters")
-  var parametersJSON: String
 }
 
 // MARK: - DynamicTool
 
 /// A generic Tool conformance that delegates execution back to JavaScript.
-/// When the model invokes this tool, it serializes arguments and sends an event
-/// to JS, then awaits a result via Swift async continuations.
+/// Arguments are decoded against `parameters`, the same constrained decoding
+/// structured output uses, so the model cannot produce an off-schema shape.
+/// When the model invokes this tool, it sends an event to JS, then awaits a
+/// result via Swift async continuations.
 @available(iOS 26, *)
 final class DynamicTool: Tool {
   let name: String
   let description: String
+  let parameters: GenerationSchema
 
-  typealias Arguments = DynamicArguments
+  typealias Arguments = GeneratedContent
 
   /// Callback invoked when the model calls this tool.
   /// Returns whether the invocation was accepted for delivery to JavaScript.
-  private let onToolCall: @Sendable (String, String, String) -> Bool
+  private let onToolCall: @Sendable (String, String, [String: Any]) -> Bool
 
   /// Pending continuations keyed by callId, awaiting JS results.
   private let continuationStore: ToolContinuationStore
@@ -53,23 +48,31 @@ final class DynamicTool: Tool {
   init(
     name: String,
     description: String,
-    parameterSchema: [String: Any],
+    parameters: GenerationSchema,
     timeoutSeconds: TimeInterval = 30,
     continuationStore: ToolContinuationStore,
-    onToolCall: @Sendable @escaping (String, String, String) -> Bool
+    onToolCall: @Sendable @escaping (String, String, [String: Any]) -> Bool
   ) {
     self.name = name
-    // Embed the parameter schema in the description so the model knows
-    // what JSON shape to produce for parametersJSON.
-    let schemaDesc = DynamicTool.buildSchemaDescription(from: parameterSchema)
-    self.description = "\(description)\n\nThe parametersJSON must be a JSON object with these fields:\n\(schemaDesc)"
+    self.description = description
+    self.parameters = parameters
     self.onToolCall = onToolCall
     self.continuationStore = continuationStore
     self.timeoutSeconds = timeoutSeconds
   }
 
-  func call(arguments: DynamicArguments) async throws -> String {
+  /// Build the decoding schema for a tool's JavaScript parameter map. Throws
+  /// for malformed parameters so registration fails instead of generation.
+  static func parameterSchema(toolName: String, parameters: [String: Any]) throws -> GenerationSchema {
+    try GenerationSchemaBuilder.build(properties: parameters, rootName: "\(toolName)Arguments")
+  }
+
+  func call(arguments: GeneratedContent) async throws -> String {
     let callId = UUID().uuidString
+    guard let data = arguments.jsonString.data(using: .utf8),
+          let argumentValues = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+      throw DynamicToolError.invalidArguments
+    }
 
     return try await withTaskCancellationHandler {
       // Store the continuation before notifying JS. Otherwise a synchronous
@@ -93,7 +96,7 @@ final class DynamicTool: Tool {
 
         if Task.isCancelled {
           _ = continuationStore.reject(callId: callId, error: CancellationError())
-        } else if !onToolCall(callId, name, arguments.parametersJSON) {
+        } else if !onToolCall(callId, name, argumentValues) {
           // A reset/release can invalidate this generation before its native
           // tool callback reaches JS. Never leave that continuation pending.
           _ = continuationStore.reject(callId: callId, error: CancellationError())
@@ -104,23 +107,6 @@ final class DynamicTool: Tool {
       // call suspended on a JavaScript result.
       _ = continuationStore.reject(callId: callId, error: CancellationError())
     }
-  }
-
-  /// Builds a human-readable schema description from the parameter dictionary.
-  private static func buildSchemaDescription(from schema: [String: Any]) -> String {
-    var lines: [String] = []
-    for (key, value) in schema {
-      if let param = value as? [String: Any] {
-        let type = param["type"] as? String ?? "string"
-        let desc = param["description"] as? String ?? ""
-        var line = "- \(key) (\(type)): \(desc)"
-        if let enumValues = param["enum"] as? [String] {
-          line += " [possible values: \(enumValues.joined(separator: ", "))]"
-        }
-        lines.append(line)
-      }
-    }
-    return lines.joined(separator: "\n")
   }
 }
 

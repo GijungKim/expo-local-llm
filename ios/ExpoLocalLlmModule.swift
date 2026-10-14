@@ -42,7 +42,7 @@ public class ExpoLocalLlmModule: Module {
 
       // Tool calling support
       Function("registerTool") { (session: LLMSession, config: ToolConfig) in
-        session.registerTool(config: config)
+        try session.registerTool(config: config)
       }
 
       Function("unregisterTool") { (session: LLMSession, name: String) in
