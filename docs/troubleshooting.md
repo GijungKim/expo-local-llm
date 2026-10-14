@@ -99,10 +99,14 @@ Android support in this package is narrower than the latest upstream SDK: an ups
 
 ## Request rejected or output invalid
 
-- Model safety refusals and context limits come from the underlying model. Handle them as unsuccessful requests, not as successful empty results.
-- `generateObject()` checks the returned JSON against the supplied schema. A `StructuredOutputValidationError` means the object cannot safely be used as the inferred result type.
+Branch on the error's code (`errorCode` from the hook, or `getLocalLLMErrorCode(error)`), not its message. Messages come from the OS and change between releases.
+
+- `ERR_CONTEXT_WINDOW_EXCEEDED`: the conversation is too long for the model. Call `reset()` or start a new session, optionally seeded with a summary. The library does not drop turns for you.
+- `ERR_GUARDRAIL_VIOLATION` and `ERR_REFUSAL`: the model's safety system blocked the request. Handle them as unsuccessful requests, not as successful empty results.
+- `ERR_RATE_LIMITED`: the system is throttling on-device generation, for example in the background or after heavy use. Retry later.
+- `ERR_STRUCTURED_OUTPUT_INVALID`: `generateObject()`, or the hook in JSON mode, checked the returned JSON against the schema and it did not match. The object cannot safely be used as the inferred result type.
 - A valid schema and valid JSON do not establish factual correctness. Validate application-specific requirements separately.
-- Tool handlers receive untrusted arguments. Validate values before using them to call application APIs.
+- Tool arguments are decoded against the tool's `parameters` on iOS, so their types and enums match. Still validate values with meaning (ranges, identifiers) before using them to call application APIs.
 
 ## Sessions and cancellation
 

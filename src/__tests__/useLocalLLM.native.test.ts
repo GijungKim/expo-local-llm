@@ -11,6 +11,7 @@ type MockStreamEvent = {
   complete?: boolean;
   text?: string;
   error?: string;
+  code?: string;
   callId?: string;
   toolName?: string;
   arguments?: ToolArguments;
@@ -774,5 +775,170 @@ describe("useLocalLLM native session lifecycle", () => {
       await newPending;
       renderer.unmount();
     });
+  });
+});
+
+describe("useLocalLLM error codes and structured output", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockInstances.splice(0);
+    mockSetRejectJsonConfig(false);
+    mockNativeModule.getAvailability.mockReturnValue("available");
+  });
+
+  async function render(json: boolean) {
+    let result: HookResult | null = null;
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(
+        React.createElement(ConfigConsumer, {
+          instructions: "codes",
+          json,
+          onValue: (value) => (result = value),
+        })
+      );
+    });
+    return {
+      current: () => result!,
+      nativeSession: mockInstances.at(-1),
+      unmount: () => act(async () => renderer.unmount()),
+    };
+  }
+
+  it("exposes the code carried by a native stream error event", async () => {
+    const { current, nativeSession, unmount } = await render(false);
+    const stream = deferred<string>();
+    nativeSession.streamResponse.mockReturnValueOnce(stream.promise);
+    let pending!: Promise<string>;
+    await act(async () => {
+      pending = current().streamResponse!("long prompt");
+      const requestId = nativeSession.streamResponse.mock.calls.at(-1)[1];
+      nativeSession.emit("streamError", {
+        requestId,
+        error: "Context window exceeded",
+        code: "ERR_CONTEXT_WINDOW_EXCEEDED",
+      });
+      await Promise.resolve();
+    });
+    expect(current().error).toBe("Context window exceeded");
+    expect(current().errorCode).toBe("ERR_CONTEXT_WINDOW_EXCEEDED");
+
+    await act(async () => {
+      stream.resolve("");
+      await pending;
+    });
+    await unmount();
+  });
+
+  it("reads the code from a rejected native request", async () => {
+    const { current, nativeSession, unmount } = await render(false);
+    nativeSession.respond.mockRejectedValueOnce(
+      Object.assign(new Error("Blocked by guardrails"), {
+        code: "ERR_GUARDRAIL_VIOLATION",
+      })
+    );
+    await act(async () => {
+      await expect(current().respond!("prompt")).rejects.toThrow(
+        "Blocked by guardrails"
+      );
+    });
+    expect(current().errorCode).toBe("ERR_GUARDRAIL_VIOLATION");
+    await unmount();
+  });
+
+  it("leaves the code null for errors that did not come from the library", async () => {
+    const { current, nativeSession, unmount } = await render(false);
+    nativeSession.respond.mockRejectedValueOnce(
+      Object.assign(new Error("custom"), { code: "MY_APP_ERROR" })
+    );
+    await act(async () => {
+      await expect(current().respond!("prompt")).rejects.toThrow("custom");
+    });
+    expect(current().error).toBe("custom");
+    expect(current().errorCode).toBeNull();
+    await unmount();
+  });
+
+  it("codes overlapping requests as busy", async () => {
+    const { current, nativeSession, unmount } = await render(false);
+    const first = deferred<string>();
+    nativeSession.respond.mockReturnValueOnce(first.promise);
+    let pending!: Promise<string>;
+    await act(async () => {
+      pending = current().respond!("first");
+      await Promise.resolve();
+    });
+    await expect(current().respond!("second")).rejects.toMatchObject({
+      code: "ERR_SESSION_BUSY",
+    });
+
+    await act(async () => {
+      first.resolve("done");
+      await pending;
+    });
+    await unmount();
+  });
+
+  it("publishes a completed object only after it validates", async () => {
+    const { current, nativeSession, unmount } = await render(true);
+    nativeSession.streamResponse.mockResolvedValueOnce('{"name":"Ada"}');
+    await act(async () => {
+      await current().streamResponse!("who");
+    });
+    expect(current().completedObject).toEqual({ name: "Ada" });
+    expect(current().streamedObject).toEqual({ name: "Ada" });
+    expect(current().error).toBeNull();
+    await unmount();
+  });
+
+  it("rejects a completed stream whose JSON does not match the schema", async () => {
+    const { current, nativeSession, unmount } = await render(true);
+    nativeSession.streamResponse.mockResolvedValueOnce('{"name":42}');
+    await act(async () => {
+      await expect(current().streamResponse!("who")).rejects.toMatchObject({
+        code: "ERR_STRUCTURED_OUTPUT_INVALID",
+      });
+    });
+    expect(current().completedObject).toBeNull();
+    expect(current().errorCode).toBe("ERR_STRUCTURED_OUTPUT_INVALID");
+    await unmount();
+  });
+
+  it("validates JSON-mode respond results", async () => {
+    const { current, nativeSession, unmount } = await render(true);
+    nativeSession.respond.mockResolvedValueOnce('{"name":"Grace"}');
+    await act(async () => {
+      await expect(current().respond!("who")).resolves.toBe('{"name":"Grace"}');
+    });
+    expect(current().completedObject).toEqual({ name: "Grace" });
+
+    nativeSession.respond.mockResolvedValueOnce("{}");
+    await act(async () => {
+      await expect(current().respond!("who")).rejects.toMatchObject({
+        code: "ERR_STRUCTURED_OUTPUT_INVALID",
+      });
+    });
+    expect(current().completedObject).toBeNull();
+    await unmount();
+  });
+
+  it("does not validate the partial JSON of a cancelled stream", async () => {
+    const { current, nativeSession, unmount } = await render(true);
+    const stream = deferred<string>();
+    nativeSession.streamResponse.mockReturnValueOnce(stream.promise);
+    let pending!: Promise<string>;
+    await act(async () => {
+      pending = current().streamResponse!("who");
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await current().cancelStream!();
+      stream.resolve('{"na');
+      await pending;
+    });
+    expect(current().streamedJSON).toBe('{"na');
+    expect(current().completedObject).toBeNull();
+    expect(current().error).toBeNull();
+    await unmount();
   });
 });

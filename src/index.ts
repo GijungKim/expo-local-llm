@@ -8,6 +8,7 @@ export {
 } from "./LLMSession";
 export { default as ExpoLocalLlmModule } from "./ExpoLocalLlmModule";
 export { getCapabilities, getModuleDiagnostics } from "./capabilities";
+export { LocalLLMError, getLocalLLMErrorCode } from "./errors";
 export {
   validateSchema,
   SchemaInvalidError,

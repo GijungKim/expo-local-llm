@@ -9,7 +9,7 @@ Wraps Apple Foundation Models (iOS 26+) and Gemini Nano (Android). Inference sta
 | Platform | Requirement |
 |----------|-------------|
 | iOS | iOS 26+ with Apple Intelligence enabled. Loads on iOS 16.4+ without crashing (returns `notEligible`). Host project must target iOS 16.4+. |
-| Android | Host app uses `minSdkVersion` 26+. Inference requires a Gemini Nano–capable device; most Android devices, including most mid-range phones, report `notEligible`. Build, module loading, eligibility, and unsupported-feature handling are device-verified; generation is not yet validated on Gemini Nano hardware. |
+| Android | Host app uses `minSdkVersion` 26+. Inference requires a Gemini Nano–capable device; most Android devices, including most mid-range phones, report `notEligible`. Build, module loading, eligibility, and unsupported-feature handling are device-verified; generation is not yet validated on Gemini Nano hardware, so `getCapabilities()` reports Android as `experimental: true`. |
 | Expo SDK | 52+ (peer range); the example targets SDK 57 / React Native 0.86. A peer range is not a tested compatibility matrix. |
 
 **A native development build is required. Stock Expo Go cannot load this module.** A simulator can compile the module and, when the host Mac has Apple Intelligence enabled and ready, run Apple Foundation Models for real inference; physical hardware is still needed for latency and thermal measurements. See the [release verification matrix](docs/release-verification.md).
@@ -152,6 +152,36 @@ function Chat() {
 }
 ```
 
+### Handle errors
+
+Every error from this library carries a stable `code` (see [Error codes](#error-codes)), so you can respond to *why* generation failed rather than parsing OS messages. The hook exposes it as `errorCode`; for a caught error, use `getLocalLLMErrorCode()`.
+
+Foundation Models has a small context window, so a long conversation eventually fails with `ERR_CONTEXT_WINDOW_EXCEEDED`. The library never drops turns silently; decide what your app should do:
+
+```tsx
+const { errorCode, reset, streamResponse } = useLocalLLM({ instructions });
+
+if (errorCode === 'ERR_CONTEXT_WINDOW_EXCEEDED') {
+  // Start over, or create a new session seeded with a summary of the chat.
+  reset?.();
+}
+if (errorCode === 'ERR_GUARDRAIL_VIOLATION' || errorCode === 'ERR_REFUSAL') {
+  // The model declined; ask the person to rephrase.
+}
+```
+
+```ts
+import { generate, getLocalLLMErrorCode } from 'expo-local-llm';
+
+try {
+  await generate(prompt);
+} catch (error) {
+  if (error instanceof Error && getLocalLLMErrorCode(error) === 'ERR_RATE_LIMITED') {
+    // The system is throttling on-device generation; retry later.
+  }
+}
+```
+
 ### Tool Calling (iOS 26+)
 
 ```tsx
@@ -167,9 +197,8 @@ function WeatherChat() {
         parameters: {
           city: { type: 'string', description: 'The city name' },
         },
-        handler: async (args) => {
-          if (typeof args.city !== 'string') throw new Error('city must be a string');
-          const res = await fetch(`https://api.example.com/weather?city=${encodeURIComponent(args.city)}`);
+        handler: async ({ city }) => {
+          const res = await fetch(`https://api.example.com/weather?city=${encodeURIComponent(String(city))}`);
           return JSON.stringify(await res.json());
         },
       },
@@ -187,6 +216,8 @@ function WeatherChat() {
 }
 ```
 
+Tool arguments use the same constrained decoding as structured output: the model fills in a schema built from `parameters`, so every declared parameter arrives with its declared type and any `enum` is respected. Validate values whose meaning matters (ranges, formats) as you would any input. If a handler throws or times out, the turn rejects with `ERR_TOOL_FAILED`.
+
 ### Structured Output
 
 iOS 26+ uses Apple's constrained decoding (`DynamicGenerationSchema`) for schema-driven output.
@@ -200,7 +231,7 @@ Android structured output is unsupported and rejected explicitly, rather than si
 *Real device output: the model fills in a recipe schema with `difficulty` constrained to `easy | medium | hard`. The streaming demo lives at `example/App.tsx`.*
 
 ```tsx
-const { respond } = useLocalLLM({
+const { respond, completedObject } = useLocalLLM({
   responseFormat: 'json',
   schema: {
     name: { type: 'string', description: 'Recipe name' },
@@ -222,9 +253,13 @@ const { respond } = useLocalLLM({
 });
 
 if (respond) {
-  const recipe = JSON.parse(await respond('Give me a pasta recipe'));
+  await respond('Give me a pasta recipe');
 }
+// completedObject is typed from the schema and validated against it:
+// { name: string; ingredients: string[]; steps: string[]; difficulty: 'easy' | 'medium' | 'hard' } | null
 ```
+
+In JSON mode, `respond` and `streamResponse` validate the final JSON against the schema and reject with `StructuredOutputValidationError` (`ERR_STRUCTURED_OUTPUT_INVALID`) if it does not match.
 
 For one-shot structured calls (classification, extraction) where you don't want conversation
 history accumulating between calls, use `generate()` instead of a session:
@@ -240,17 +275,21 @@ const json = await generate('Classify this message: "how was my sleep?"', {
 ```
 
 Streaming with a schema yields progressively-filled snapshots via `streamedJSON` (the current
-partial as a JSON string) and `streamedObject` (the parsed value):
+partial as a JSON string) and `streamedObject` (the parsed value, typed with every field optional).
+When the stream completes, the validated result lands in `completedObject`:
 
 ```tsx
-const { streamResponse, streamedObject } = useLocalLLM({
+const { streamResponse, streamedObject, completedObject } = useLocalLLM({
   responseFormat: 'json',
   schema: { /* ... */ },
 });
 
 await streamResponse?.('Give me a pasta recipe');
-// streamedObject updates as the model fills in fields
+// streamedObject updates as the model fills in fields;
+// completedObject is set once the whole object has validated.
 ```
+
+A cancelled stream keeps its partial `streamedObject` and leaves `completedObject` null.
 
 #### Schema validation
 
@@ -277,7 +316,7 @@ Reports which features the loaded platform integration implements. Use this to d
 
 The function does not download models, start inference, or opt the app into a cloud service.
 
-Returns `platform`, `backend`, `status`, boolean `text`/`streaming`/`tools`/`structuredOutput` flags, and `structuredOutputMode` (`'constrained'` or `'unsupported'`).
+Returns `platform`, `backend`, `status`, boolean `text`/`streaming`/`tools`/`structuredOutput` flags, `structuredOutputMode` (`'constrained'` or `'unsupported'`), and `experimental`. `experimental` is `true` on Android until Gemini Nano generation has been validated on real hardware; gate production features on it if you need verified behavior.
 
 Capability `status` is `'available'`, `'moduleUnavailable'`, `'unsupportedOS'`, or `'unsupportedPlatform'`. Here `'available'` means the integration is supported; use the hook's `availability` for current model readiness.
 
@@ -318,9 +357,11 @@ if (!diagnostics.available) {
 | `isGenerating` | `boolean` | Whether a generation is in progress |
 | `streamedText` | `string` | Accumulated text from current text stream |
 | `streamedJSON` | `string` | Current partial JSON from a schema-driven stream |
-| `streamedObject` | `unknown` | Parsed value of `streamedJSON` (or `null` before any partial) |
+| `streamedObject` | `DeepPartial<InferSchema<schema>> \| null` | Parsed value of `streamedJSON` (or `null` before any partial). Fields may be missing until generated. |
+| `completedObject` | `InferSchema<schema> \| null` | The finished JSON-mode response, validated against the schema. `null` while generating and after a cancel. |
 | `downloadProgress` | `number \| null` | Download progress 0-1 (Android only) |
 | `error` | `string \| null` | Last error message |
+| `errorCode` | `LocalLLMErrorCode \| null` | Code of the last error (see [Error codes](#error-codes)); `null` when there is none or it came from your own code |
 | `activeToolCalls` | `ActiveToolCall[]` | In-flight tool calls (`{ callId, toolName }`) |
 | `respond` | `(prompt: string) => Promise<string>` | Non-streaming generation. `undefined` when unavailable. |
 | `session` | `LLMSession \| null` | The native session object. `null` before creation or when unavailable. Use the hook's generation methods for hook-managed state and tool dispatch. |
@@ -363,6 +404,33 @@ try {
 
 Low-level `respond(prompt, requestId?)` and `streamResponse(prompt, requestId?)` accept an optional request identifier. Generation events carry `requestId` so consumers can discard queued events from cancelled or reset requests. Omit it to let native code generate an identifier; `useLocalLLM()` manages identifiers and filtering automatically. Use a distinct identifier for each invocation.
 
+### Error codes
+
+Errors thrown or rejected by the library, and `streamError` events, carry one of these codes. Messages come from the OS and may change; codes do not.
+
+| Code | Meaning |
+|------|---------|
+| `ERR_CONTEXT_WINDOW_EXCEEDED` | The conversation no longer fits the model's context window. Reset or start a new session. |
+| `ERR_GUARDRAIL_VIOLATION` | Safety guardrails blocked the prompt or response. |
+| `ERR_REFUSAL` | The model declined to answer. |
+| `ERR_UNSUPPORTED_LANGUAGE` | The prompt language or device locale is not supported. |
+| `ERR_UNSUPPORTED_REQUEST` | The request uses a capability the model or helper cannot honour. |
+| `ERR_RATE_LIMITED` | The system is throttling generation (quota, background use, load). Retry later. |
+| `ERR_MODEL_UNAVAILABLE` | Model assets are missing or the device cannot run the model right now. |
+| `ERR_DECODING_FAILED` | Output could not be decoded into the requested structure. |
+| `ERR_TIMEOUT` | Generation exceeded the system's time limit (iOS 27+). |
+| `ERR_TOOL_FAILED` | A tool handler threw, timed out, or was removed mid-call. |
+| `ERR_GENERATION_FAILED` | Any other generation failure. |
+| `ERR_SESSION_BUSY` | The session already has a generation in progress. |
+| `ERR_SESSION_INVALID` | The session was released or is not ready. |
+| `ERR_NOT_SUPPORTED` | On-device generation is not available on this OS version. |
+| `ERR_RESPONSE_FORMAT_NOT_SUPPORTED` | Structured output is not supported on this platform. |
+| `ERR_TOOL_NOT_SUPPORTED` | Tool calling is not supported on this platform. |
+| `ERR_MODEL_DOWNLOAD_FAILED` | Android: downloading Gemini Nano failed. |
+| `ERR_SCHEMA_INVALID` | A schema is malformed (`SchemaInvalidError`). |
+| `ERR_STRUCTURED_OUTPUT_INVALID` | Generated JSON did not match the schema (`StructuredOutputValidationError`). |
+| `ERR_UNAVAILABLE` | The native module is missing from this build. |
+
 ### `ModelAvailability`
 
 `'available' | 'notEnabled' | 'notReady' | 'notEligible' | 'downloadRequired' | 'downloading' | 'unknown' | 'moduleUnavailable'`
@@ -376,14 +444,15 @@ Android readiness is checked asynchronously and may initially be `unknown`. Pref
 | System instructions | Native `LanguageModelSession(instructions:)` | Prepended in prompt text |
 | Token limits | OS/model-dependent | SDK/model-dependent |
 | Model availability | Built-in to OS | May need download |
-| Session history | Native session maintains it | `ConversationHistory` class |
+| Session history | Native session maintains it | Replayed in the prompt; last 10 exchanges, with role markers in conversation text neutralised |
 | Streaming | `AsyncSequence` | Kotlin `Flow` |
 
 ## Known Limitations
 
 - Events belong to their session. Use a separate session for independent conversations.
 - A session accepts one generation at a time; overlapping requests reject. After cancellation, await the original generation promise before starting another request.
-- **Android**: Gemini Nano SDK is in beta and its API surface may change. Build, module loading, eligibility, and unsupported-feature rejection are device-verified; generation has not been validated on Gemini Nano hardware.
+- **Android**: Gemini Nano SDK is in beta and its API surface may change. Build, module loading, eligibility, and unsupported-feature rejection are device-verified; generation has not been validated on Gemini Nano hardware (`getCapabilities().experimental` is `true`).
+- **Context window**: neither platform trims history to fit the model's context. iOS rejects with `ERR_CONTEXT_WINDOW_EXCEEDED` when the transcript is too long; Android keeps the last 10 exchanges. Call `reset()` or start a new session when that happens.
 - **iOS**: Apple's Foundation Model may refuse certain categories of prompts (e.g. personal health data interpretation) due to built-in safety guardrails.
 - Generation methods (`respond`, `streamResponse`) require a session and `availability === 'available'`. Cancellation remains available while a session exists.
 - Tool calling is iOS 26+ only. Android will throw at session creation if tools are passed.

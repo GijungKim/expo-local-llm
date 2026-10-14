@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Add stable error codes on both platforms. Generation failures (context window exceeded, guardrail violation, refusal, rate limiting, unavailable model, and others) reject with a `LocalLLMErrorCode`, `streamError` events carry `code`, and the hook exposes `errorCode`. Read a caught error's code with `getLocalLLMErrorCode()`.
+- Constrain iOS tool-call arguments to each tool's `parameters` with Foundation Models' schema-guided decoding, the same mechanism as structured output. Arguments the model produces now always match the declared types and enums; previously the model wrote free-form JSON inside a string and unparseable arguments reached handlers as `{}`.
+- Validate the final JSON of hook `respond` and `streamResponse` calls in JSON mode, as `generateObject()` already did, and expose the result as `completedObject`, typed from the schema. `streamedObject` is now typed from the schema with every field optional.
+- Report Android as `experimental` in `getCapabilities()` until generation is validated on Gemini Nano hardware.
+- Neutralise `[System]`/`[User]`/`[Assistant]` markers in Android conversation text so a message cannot impersonate instructions or another turn in the flat Gemini Nano prompt.
+- Derive the Android library version from `package.json`; it previously reported `0.1.0`.
+
+**Migration notes:** errors previously coded `ERR_STREAM` now carry a specific code, and stream error messages no longer start with `Stream error:`. Android model download failures are coded `ERR_MODEL_DOWNLOAD_FAILED`. `registerTool()` now throws when a tool's parameters cannot be turned into a schema, instead of failing later during generation. In JSON mode the hook's `respond` and `streamResponse` reject with `StructuredOutputValidationError` if the final output does not match the schema. Code that cast `streamedObject` from `unknown` can drop the cast. Rebuild the native app; the error codes and constrained tool arguments are native changes.
+
 ## 0.7.0
 
 - Add capability discovery and actionable native-module setup diagnostics, separate from model readiness.

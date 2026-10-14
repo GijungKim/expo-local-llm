@@ -14,12 +14,6 @@ class SessionInvalidException: Exception, @unchecked Sendable {
   }
 }
 
-class StreamException: GenericException<String>, @unchecked Sendable {
-  override var reason: String {
-    "Stream error: \(param)"
-  }
-}
-
 class SessionBusyException: Exception, @unchecked Sendable {
   override var code: String {
     "ERR_SESSION_BUSY"
