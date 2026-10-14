@@ -68,8 +68,25 @@ export type ToolParameterType = "string" | "number" | "boolean";
 export type ToolParameter = {
   type: ToolParameterType;
   description: string;
-  enum?: string[];
+  /** Allowed values for a `"string"` parameter. */
+  enum?: readonly string[];
 };
+
+export type ToolParameters = Record<string, ToolParameter>;
+
+export type InferToolParameter<Parameter extends ToolParameter> =
+  Parameter extends {
+    type: "string";
+    enum: readonly (infer Value extends string)[];
+  }
+    ? Value
+    : Parameter extends { type: "string" }
+    ? string
+    : Parameter extends { type: "number" }
+    ? number
+    : Parameter extends { type: "boolean" }
+    ? boolean
+    : never;
 
 /**
  * Arguments the model supplied for a tool call. On iOS the model's decoding is
@@ -78,19 +95,31 @@ export type ToolParameter = {
  * should still validate values that carry meaning (ranges, formats), as they
  * would for any other input.
  */
-export type ToolArguments = Record<string, unknown>;
-
-export type ToolDefinition = {
-  name: string;
-  description: string;
-  parameters: Record<string, ToolParameter>;
-  handler: (args: ToolArguments) => Promise<string>;
+export type InferToolArguments<Parameters extends ToolParameters> = {
+  -readonly [Key in keyof Parameters]: InferToolParameter<Parameters[Key]>;
 };
+
+/** Tool arguments when the tool's parameters are not known statically. */
+export type ToolArguments = InferToolArguments<ToolParameters>;
+
+/**
+ * A tool the model can call. Declare tools with `defineTool()` to have the
+ * handler's arguments typed from `parameters`.
+ */
+export type ToolDefinition<Parameters extends ToolParameters = ToolParameters> =
+  {
+    name: string;
+    description: string;
+    parameters: Parameters;
+    // Method syntax keeps a tool with specific parameters assignable to the
+    // general `ToolDefinition` that `tools` arrays hold.
+    handler(args: InferToolArguments<Parameters>): Promise<string>;
+  };
 
 export type ToolConfig = {
   name: string;
   description: string;
-  parameters: Record<string, ToolParameter>;
+  parameters: ToolParameters;
 };
 
 export type ToolCallEvent = {

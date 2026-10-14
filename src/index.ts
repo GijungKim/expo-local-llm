@@ -1,4 +1,5 @@
 export { useLocalLLM } from "./useLocalLLM";
+export { defineTool } from "./defineTool";
 export {
   LLMSession,
   NativeModuleUnavailableError,
