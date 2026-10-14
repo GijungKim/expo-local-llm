@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.0
 
 - Add stable error codes on both platforms. Generation failures (context window exceeded, guardrail violation, refusal, rate limiting, unavailable model, and others) reject with a `LocalLLMErrorCode`, `streamError` events carry `code`, and the hook exposes `errorCode`. Read a caught error's code with `getLocalLLMErrorCode()`.
 - Constrain iOS tool-call arguments to each tool's `parameters` with Foundation Models' schema-guided decoding, the same mechanism as structured output. Arguments the model produces now always match the declared types and enums; previously the model wrote free-form JSON inside a string and unparseable arguments reached handlers as `{}`.
