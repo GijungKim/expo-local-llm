@@ -39,22 +39,20 @@
   },
   "overrides": [
     {
-      "files": ["src/__tests__/**"],
+      "files": [
+        "src/__tests__/**"
+      ],
       "rules": {
         "anti-slop/no-module-mocking": "off"
       }
     },
     {
-      "files": ["src/validateSchema.ts"],
+      "files": [
+        "src/validateSchema.ts"
+      ],
       "rules": {
         "anti-slop/no-runtime-typeof": "off",
         "anti-slop/no-unknown-parameters": "off",
-        "anti-slop/no-unsafe-dictionary-type": "off"
-      }
-    },
-    {
-      "files": ["src/ExpoLocalLlm.types.ts"],
-      "rules": {
         "anti-slop/no-unsafe-dictionary-type": "off"
       }
     }
