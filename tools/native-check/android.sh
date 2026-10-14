@@ -39,8 +39,10 @@ grep -Eq '^> Task :expo-local-llm:compileDebugKotlin($| )' "$gradle_log" || {
 test_results=""
 for build_dir in "$root/android/build" "$root/example/node_modules/expo-local-llm/android/build"; do
   if [[ -d "$build_dir" ]]; then
+    # A build directory without test results (e.g. a stale local one) must
+    # fall through to the next candidate rather than abort under `set -e`.
     test_results="$(find "$build_dir/test-results/testDebugUnitTest" \
-      -name 'TEST-*.xml' -print -quit 2>/dev/null)"
+      -name 'TEST-*.xml' -print -quit 2>/dev/null || true)"
     if [[ -n "$test_results" ]]; then
       break
     fi
