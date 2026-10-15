@@ -9,7 +9,7 @@ export type ModelAvailability =
   | "unknown";
 
 /**
- * Stable codes carried by every error this library raises, on both platforms.
+ * Stable codes carried by generation failures and the library's own checks, on both platforms.
  * Branch on these rather than on messages, which come from the OS and change.
  * Read one from any caught error with `getLocalLLMErrorCode`.
  */
@@ -32,7 +32,7 @@ export type LocalLLMErrorCode =
   | "ERR_DECODING_FAILED"
   /** Generation took longer than the system allows. */
   | "ERR_TIMEOUT"
-  /** A tool call failed: the handler threw, timed out, or was unregistered. */
+  /** A tool call failed: the handler threw or timed out, or the hook had no handler for it. */
   | "ERR_TOOL_FAILED"
   /** Any other generation failure. */
   | "ERR_GENERATION_FAILED"
