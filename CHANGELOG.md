@@ -1,10 +1,5 @@
 # Changelog
 
-## Unreleased
-
-- Add `tools/model-check`, which runs the library's Foundation Models code (tool calls, schemas, error classification) against the real system model on a Mac, and add it to the release checklist.
-- Document that full error-code classification on iOS 27 needs an Xcode 27 build; an Xcode 26.4 build reports the iOS 27 error types as `ERR_GENERATION_FAILED`.
-
 ## 0.8.0
 
 - Add stable error codes on both platforms. Generation failures (context window exceeded, guardrail violation, refusal, rate limiting, unavailable model, and others) reject with a `LocalLLMErrorCode`, `streamError` events carry `code`, and the hook exposes `errorCode`. Read a caught error's code with `getLocalLLMErrorCode()`.
@@ -14,6 +9,8 @@
 - Report Android as `experimental` in `getCapabilities()` until generation is validated on Gemini Nano hardware.
 - Neutralise `[System]`/`[User]`/`[Assistant]` markers in Android conversation text so a message cannot impersonate instructions or another turn in the flat Gemini Nano prompt.
 - Derive the Android library version from `package.json`; it previously reported `0.1.0`.
+- Add `tools/model-check`, which runs the library's Foundation Models code (tool calls, schemas, error classification) against the real system model on a Mac, and add it to the release checklist.
+- Document that full error-code classification on iOS 27 needs an Xcode 27 build; an Xcode 26.4 build reports the iOS 27 error types as `ERR_GENERATION_FAILED`.
 
 **Migration notes:** errors previously coded `ERR_STREAM` now carry a specific code, and stream error messages no longer start with `Stream error:`. Android model download failures are coded `ERR_MODEL_DOWNLOAD_FAILED`. `registerTool()` now throws when a tool's parameters cannot be turned into a schema, instead of failing later during generation. In JSON mode the hook's `respond` and `streamResponse` reject with `StructuredOutputValidationError` if the final output does not match the schema. Code that cast `streamedObject` from `unknown` can drop the cast. Rebuild the native app; the error codes and constrained tool arguments are native changes.
 
