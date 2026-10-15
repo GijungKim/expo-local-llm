@@ -16,7 +16,7 @@ cd "$root"
 bun install --frozen-lockfile
 bun run build
 
-# Always compile a freshly generated SDK 57 project rather than accepting stale
+# Always compile a freshly generated SDK 58 project rather than accepting stale
 # checked-in native output. --no-install keeps dependency installation explicit.
 rm -rf "example/node_modules" "example/$platform"
 (

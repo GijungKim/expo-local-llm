@@ -21,7 +21,7 @@ If you are unsure if a PR would be accepted, open an issue first or look for iss
 
 ## Developing
 
-- Requirements: Node 24, Bun 1.4.2 (matching CI). The SDK 57 example requires Xcode 26.4+ on iOS; Android requires SDK 36, NDK 27.1.12297006, and JDK 17. See [native compile checks](tools/native-check/README.md).
+- Requirements: Node 24, Bun 1.4.2 (matching CI). The SDK 58 example requires Xcode 26.4+ on iOS; Android requires SDK 37, NDK 27.1.12297006, and JDK 17. See [native compile checks](tools/native-check/README.md).
 - Install dependencies and validate:
 
   ```bash

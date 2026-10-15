@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Build and test against Expo SDK 58 (React Native 0.88): the example app and the native compile checks now use SDK 58, with Android compile SDK 37. The library code and the `>=52` peer range are unchanged.
+- Document that SDK 58 apps adopt the UIKit scene lifecycle by default, so `ios.enableSceneSupport` is only needed on SDK 57.
+
 ## 0.8.0
 
 - Add stable error codes on both platforms. Generation failures (context window exceeded, guardrail violation, refusal, rate limiting, unavailable model, and others) reject with a `LocalLLMErrorCode`, `streamError` events carry `code`, and the hook exposes `errorCode`. Read a caught error's code with `getLocalLLMErrorCode()`.
