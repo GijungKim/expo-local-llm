@@ -16,6 +16,7 @@ android {
     minSdk 26
     versionCode 1
     versionName project.version
+    consumerProguardFiles 'proguard-rules.pro'
   }
 
   compileOptions {
