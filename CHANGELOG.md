@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Add `tools/model-check`, which runs the library's Foundation Models code (tool calls, schemas, error classification) against the real system model on a Mac, and add it to the release checklist.
+- Document that full error-code classification on iOS 27 needs an Xcode 27 build; an Xcode 26.4 build reports the iOS 27 error types as `ERR_GENERATION_FAILED`.
+
 ## 0.8.0
 
 - Add stable error codes on both platforms. Generation failures (context window exceeded, guardrail violation, refusal, rate limiting, unavailable model, and others) reject with a `LocalLLMErrorCode`, `streamError` events carry `code`, and the hook exposes `errorCode`. Read a caught error's code with `getLocalLLMErrorCode()`.

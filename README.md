@@ -446,6 +446,8 @@ Low-level `respond(prompt, requestId?)` and `streamResponse(prompt, requestId?)`
 
 Errors thrown or rejected by the library, and `streamError` events, carry one of these codes. Messages come from the OS and may change; codes do not.
 
+On iOS 27, Foundation Models reports some failures with error types that only the iOS 27 SDK can name. Build with Xcode 27 to classify all of them. An app built with Xcode 26.4 still gets codes for the iOS 26 error types, but reports the newer ones as `ERR_GENERATION_FAILED`.
+
 | Code | Meaning |
 |------|---------|
 | `ERR_CONTEXT_WINDOW_EXCEEDED` | The conversation no longer fits the model's context window. Reset or start a new session. |

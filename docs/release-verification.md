@@ -39,6 +39,10 @@ npx expo run:android --device
 
 Do not run both platform commands blindly: select the connected device appropriate to the platform. The example's local package dependency must include the latest root build.
 
+## Model check (macOS)
+
+`tools/model-check/run.sh` runs the library's Foundation Models code against the real system model on a Mac with Apple Intelligence: constrained tool arguments, tool-failure and context-overflow error codes, and schema-constrained output. Run it for every release and after any Swift change to tools, schemas or errors. See [its README](../tools/model-check/README.md) for what it does and does not cover.
+
 ## Physical-device release record
 
 For each release, record the package commit, Expo SDK, native SDK/toolchain, device model, OS version, and actual result. Keep failed and unsupported cases explicit. Do not carry results forward from an older OS-managed model without rerunning the checks.
@@ -55,7 +59,7 @@ For each release, record the package commit, Expo SDK, native SDK/toolchain, dev
 | Unmount/release while generating | Pending | Pending |
 | Model download succeeds and recovers after failure | Not applicable | Pending |
 | Structured object passes nested schema validation | Verified on simulator and iPhone 15 Pro (object with string, array, and enum fields) | Unsupported, and rejection is clean: a clear error is surfaced and the app stays usable (verified on Galaxy A17) |
-| Tool success, rejection, timeout, and teardown | Pending — the example UI exposes no tools | Unsupported; verify explicit rejection |
+| Tool success, rejection, timeout, and teardown | Success (constrained arguments) and rejection (`ERR_TOOL_FAILED`) verified by the model check on macOS 27. Timeout and teardown pending; the example UI exposes no tools | Unsupported; verify explicit rejection |
 
 “Pending” is intentional: this document is a checklist, not fabricated device evidence. Complete the relevant rows before claiming a platform is device-verified.
 
