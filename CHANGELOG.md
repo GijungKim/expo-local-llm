@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fix Android availability in minified release builds, which Expo SDK 58 turns on by default. R8 removed the constructors ML Kit uses to start up, so `getAvailability()` reported `unknown` on every device, including eligible ones. The library now ships a consumer ProGuard rule that keeps them; no app changes are needed beyond rebuilding. A failed availability check is now also logged under the `ExpoLocalLlm` tag instead of being swallowed silently.
 - Build and test against Expo SDK 58 (React Native 0.88): the example app and the native compile checks now use SDK 58, with Android compile SDK 37. The library code and the `>=52` peer range are unchanged.
 - Document that SDK 58 apps adopt the UIKit scene lifecycle by default, so `ios.enableSceneSupport` is only needed on SDK 57.
 

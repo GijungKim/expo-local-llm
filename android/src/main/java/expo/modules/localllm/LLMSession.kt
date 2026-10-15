@@ -1,5 +1,6 @@
 package expo.modules.localllm
 
+import android.util.Log
 import com.google.mlkit.genai.common.DownloadStatus
 import com.google.mlkit.genai.common.FeatureStatus
 import com.google.mlkit.genai.prompt.GenerateContentRequest
@@ -48,6 +49,8 @@ class LLMSession(
   private var disposed = false
 
   companion object {
+    private const val LOG_TAG = "ExpoLocalLlm"
+
     @Volatile
     private var cachedAvailability = ModelAvailability.unknown
     private val availabilityMutex = Mutex()
@@ -69,6 +72,7 @@ class LLMSession(
         throw e
       } catch (e: Exception) {
         // SDK/API failures do not prove that the device is ineligible.
+        Log.w(LOG_TAG, "Gemini Nano availability check failed", e)
         ModelAvailability.unknown
       } finally {
         // Generation.getClient() creates an independent engine-backed client.
