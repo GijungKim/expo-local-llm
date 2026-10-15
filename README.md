@@ -80,7 +80,7 @@ export function Summary({ notes }: { notes: string }) {
 |---|---|
 | iOS | iOS 26+ with Apple Intelligence enabled to generate. The module loads on iOS 16.4+ and reports `notEligible` below 26. The host project must target iOS 16.4+, and building needs Xcode 26.4 or newer. |
 | Android | `minSdkVersion` 26+. Generation needs a Gemini Nano–capable device; most Android phones, including most mid-range ones, report `notEligible`. |
-| Expo SDK | 52+ peer range. The example app targets SDK 57 / React Native 0.86; the peer range is not a tested compatibility matrix. |
+| Expo SDK | 52+ peer range. The example app targets SDK 58 / React Native 0.88; the peer range is not a tested compatibility matrix. |
 
 A native development build is required, built locally or with EAS Build. Installing or upgrading the package needs a new binary; EAS Update cannot add native code. An iPhone simulator can run Foundation Models when the host Mac has Apple Intelligence enabled; latency and thermals still need real hardware.
 
@@ -90,7 +90,7 @@ For setup failures, unavailable models and unsupported features, see [troublesho
 
 ### Xcode 27 requires scene support
 
-Apps built with the iOS 27 SDK must adopt the UIKit scene lifecycle, or UIKit stops them at launch before any JavaScript runs. Expo SDK 57 apps opt in through `expo-build-properties` (Expo `57.0.23`+, `expo-build-properties` `57.0.20`+):
+Apps built with the iOS 27 SDK must adopt the UIKit scene lifecycle, or UIKit stops them at launch before any JavaScript runs. Expo SDK 58 apps adopt it by default, so there is nothing to set. Expo SDK 57 apps opt in through `expo-build-properties` (Expo `57.0.23`+, `expo-build-properties` `57.0.20`+):
 
 ```json
 {
@@ -476,7 +476,7 @@ Android readiness is checked asynchronously and may initially be `unknown`. Pref
 
 ## How this library is verified
 
-- **Every pull request:** lint, unit tests, type-level tests, and a compile of a freshly generated Expo SDK 57 app on both platforms, with the iOS build using Xcode 26.4, the oldest supported toolchain. Android also runs JVM tests of the prompt assembly and error mapping.
+- **Every pull request:** lint, unit tests, type-level tests, and a compile of a freshly generated Expo SDK 58 app on both platforms, with the iOS build using Xcode 26.4, the oldest supported toolchain. Android also runs JVM tests of the prompt assembly and error mapping.
 - **Against the real model:** [`tools/model-check`](tools/model-check/README.md) runs the library's Foundation Models code on a Mac with Apple Intelligence: constrained tool arguments, error-code mapping and schema-constrained output. The release checklist runs it before each release.
 - **On devices:** the [release verification record](docs/release-verification.md) lists what has been checked on an iPhone 15 Pro, a simulator and a Galaxy A17, and leaves untested scenarios marked as pending rather than assumed.
 
