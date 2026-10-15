@@ -5,7 +5,7 @@
 [![Native compile](https://github.com/GijungKim/expo-local-llm/actions/workflows/native.yml/badge.svg)](https://github.com/GijungKim/expo-local-llm/actions/workflows/native.yml)
 [![License: MIT](https://img.shields.io/npm/l/expo-local-llm)](LICENSE)
 
-On-device language models for Expo apps, using the models the operating system already ships: Apple Foundation Models on iOS 26+ and Gemini Nano on Android. Generate text, stream it into a component, extract typed objects and call tools, with no model weights to bundle, no API key and no network.
+On-device language models for Expo apps, using the models the operating system already ships: Apple Foundation Models on iOS 26+ and Gemini Nano on Android. Generate text, stream it into a component, extract typed objects and call tools, with no model weights to bundle, no API key, and no network connection needed to generate.
 
 Inference stays on the device. There is no cloud fallback; network access happens only inside tool handlers you write. The package has no runtime dependencies.
 
@@ -264,9 +264,9 @@ Tool arguments use the same constrained decoding as structured output: the model
 
 ### Handle errors
 
-Every error from this library carries a stable `code` (see [Error codes](#error-codes)), so you can respond to *why* generation failed rather than parsing OS messages. The hook exposes it as `errorCode`; for a caught error, use `getLocalLLMErrorCode()`.
+Generation failures and the library's own checks carry a stable `code` (see [Error codes](#error-codes)), so you can respond to *why* generation failed rather than parsing OS messages. The hook exposes it as `errorCode`; for a caught error, use `getLocalLLMErrorCode()`.
 
-Foundation Models has a small context window, so a long conversation eventually fails with `ERR_CONTEXT_WINDOW_EXCEEDED`. The library never drops turns silently; decide what your app should do:
+Foundation Models has a small context window, so a long conversation eventually fails with `ERR_CONTEXT_WINDOW_EXCEEDED`. On iOS the library never drops turns to make room (Android replays only the last 10 exchanges); decide what your app should do:
 
 ```tsx
 const { errorCode, reset } = useLocalLLM({ instructions: 'You are a helpful assistant.' });
@@ -437,7 +437,7 @@ On iOS 27, Foundation Models reports some failures with error types that only th
 | `ERR_MODEL_UNAVAILABLE` | Model assets are missing or the device cannot run the model right now. |
 | `ERR_DECODING_FAILED` | Output could not be decoded into the requested structure. |
 | `ERR_TIMEOUT` | Generation exceeded the system's time limit (iOS 27+). |
-| `ERR_TOOL_FAILED` | A tool handler threw, timed out, or was removed mid-call. |
+| `ERR_TOOL_FAILED` | A tool handler threw or timed out, or the hook had no handler for the tool. |
 | `ERR_GENERATION_FAILED` | Any other generation failure. |
 | `ERR_SESSION_BUSY` | The session already has a generation in progress. |
 | `ERR_SESSION_INVALID` | The session was released or is not ready. |
@@ -468,7 +468,7 @@ Android readiness is checked asynchronously and may initially be `unknown`. Pref
 | Model availability | Built into the OS | May need `downloadModel()` |
 | Token limits | OS and model dependent | SDK and model dependent |
 
-- **Context window.** Neither platform trims history to fit. iOS rejects with `ERR_CONTEXT_WINDOW_EXCEEDED`; call `reset()` or start a new session.
+- **Context window.** Neither platform trims history to fit the model's context; Android only caps it at 10 exchanges. iOS rejects with `ERR_CONTEXT_WINDOW_EXCEEDED`; call `reset()` or start a new session.
 - **One generation per session.** Overlapping requests reject with `ERR_SESSION_BUSY`. After cancelling, await the original promise before starting another request. Use separate sessions for independent conversations; events belong to their session.
 - **Guardrails.** Apple's model refuses some categories of prompt, such as interpreting personal health data. A refusal arrives as `ERR_GUARDRAIL_VIOLATION` or `ERR_REFUSAL`.
 - **Android is experimental.** The Gemini Nano SDK is in beta and its API may change. Structured output and tools are rejected at session creation.
@@ -477,7 +477,7 @@ Android readiness is checked asynchronously and may initially be `unknown`. Pref
 ## How this library is verified
 
 - **Every pull request:** lint, unit tests, type-level tests, and a compile of a freshly generated Expo SDK 57 app on both platforms, with the iOS build using Xcode 26.4, the oldest supported toolchain. Android also runs JVM tests of the prompt assembly and error mapping.
-- **Against the real model:** [`tools/model-check`](tools/model-check/README.md) runs the library's Foundation Models code on a Mac with Apple Intelligence: constrained tool arguments, error-code mapping and schema-constrained output. It runs before each release.
+- **Against the real model:** [`tools/model-check`](tools/model-check/README.md) runs the library's Foundation Models code on a Mac with Apple Intelligence: constrained tool arguments, error-code mapping and schema-constrained output. The release checklist runs it before each release.
 - **On devices:** the [release verification record](docs/release-verification.md) lists what has been checked on an iPhone 15 Pro, a simulator and a Galaxy A17, and leaves untested scenarios marked as pending rather than assumed.
 
 ## Choosing this library
