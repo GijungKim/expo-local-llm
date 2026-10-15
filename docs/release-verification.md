@@ -70,8 +70,10 @@ For each release, record the package commit, Expo SDK, native SDK/toolchain, dev
 | Simulator | iPhone 18 Pro, iOS 27.0 runtime, host Mac with Apple Intelligence enabled; Expo SDK 57.0.25, React Native 0.86.2, Xcode 27.0; package at `c95a978` | Ready, text, JSON, cancel, and recovery passed |
 | Physical device | iPhone 15 Pro, iOS 27.0, Apple Intelligence enabled; same toolchain and package revision | Ready, text, and JSON passed |
 | Physical device (Android) | Galaxy A17 (SM-A176U1), Android 16 / SDK 36, arm64; Expo SDK 57.0.25, React Native 0.86.2, JDK 17, SDK build-tools 36.0.0, NDK 27.1.12297006 | Module loaded, `notEligible` reported, structured output rejected cleanly |
+| Physical device, SDK 58 | iPhone 15 Pro, iOS 27.0.1, Apple Intelligence enabled; Expo SDK 58.0.11, React Native 0.88.0, Xcode 27.0; Release build; package 0.8.1 | Launched with the generated scene delegate; ready, text, JSON (enum field constrained), cancel, and recovery passed |
+| Physical device (Android), SDK 58 | Galaxy A17 (SM-A176U1), Android 16 / SDK 36, arm64; Expo SDK 58.0.11, React Native 0.88.0, AGP 9.2.1, compile SDK 37; Release build with R8 minification; package 0.8.1 | Module loaded and `notEligible` reported. Without 0.8.1's keep rule the same build reported `unknown` |
 
-Both runs used the debug example app. They establish that inference, structured output, and cancellation work; they do not measure latency, memory, or thermal behavior, which still require a dedicated performance pass.
+The SDK 57 runs used the debug example app; the SDK 58 runs used Release builds, which bundle the JavaScript and, on Android, minify with R8. They establish that inference, structured output, and cancellation work; they do not measure latency, memory, or thermal behavior, which still require a dedicated performance pass.
 
 For task-quality measurements, keep a small fixed input set for classification and extraction. Report success rate and latency alongside the device/OS and prompt/schema versions. Do not treat syntactically valid JSON as evidence that the answer is semantically correct.
 
