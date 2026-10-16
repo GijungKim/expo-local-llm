@@ -62,12 +62,6 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
-      - name: Cache Bun packages
-        uses: actions/cache@v6
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock', 'example/bun.lock') }}
-          restore-keys: bun-${{ runner.os }}-
 
       - name: Set up Java
         uses: actions/setup-java@v6
@@ -116,22 +110,9 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
-      - name: Cache Bun packages
-        uses: actions/cache@v6
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock', 'example/bun.lock') }}
-          restore-keys: bun-${{ runner.os }}-
 
       - name: Select Xcode 26.4.1
         run: sudo xcode-select --switch /Applications/Xcode_26.4.1.app
-
-      - name: Cache CocoaPods downloads
-        uses: actions/cache@v6
-        with:
-          path: ~/Library/Caches/CocoaPods
-          key: pods-${{ runner.os }}-${{ hashFiles('example/bun.lock') }}
-          restore-keys: pods-${{ runner.os }}-
 
       - name: Build package and generate iOS project
         run: tools/native-check/prepare-example.sh ios
