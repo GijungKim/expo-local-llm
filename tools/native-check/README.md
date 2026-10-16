@@ -43,10 +43,13 @@ cannot run without an AICore-capable device. Gradle reports a task with no
 matching sources as `NO-SOURCE` and still passes, so the check asserts that test
 result files exist instead of trusting the task outcome.
 
-The example depends on the package through `file:..`, which materializes as a
-directory of symlinks back into the repository. Edits to existing files are
-therefore picked up immediately, but a newly added file needs a reinstall before
-Gradle can see it; `prepare-example.sh` always reinstalls.
+The example does not install the package. Autolinking finds it through
+`expo.autolinking.nativeModulesDir: ".."` in `example/package.json`, so Gradle
+and CocoaPods compile the repository's own `android/` and `ios/` sources, and
+Metro resolves the JavaScript from the repository root (`example/metro.config.js`).
+This is the layout `create-expo-module` generates. An earlier `file:..`
+dependency made Bun copy the whole repository, including `node_modules` and the
+example itself, into the example on every install.
 
 Preparation validates Expo's resolved module metadata on both platforms. The
 iOS check additionally requires the pod lock, generated `ExpoModulesProvider`,
