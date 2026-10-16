@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: native-${{ github.workflow }}-${{ github.ref }}
@@ -18,8 +19,32 @@ env:
   NODE_VERSION: 24
 
 jobs:
+  # Docs-only pull requests cannot change what compiles, so the native jobs skip
+  # them. A skipped job reports success, and pushes to main always run.
+  changes:
+    name: Detect native changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      native: ${{ github.event_name != 'pull_request' || steps.filter.outputs.native == 'true' }}
+    steps:
+      - name: Filter changed paths
+        id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v4
+        with:
+          predicate-quantifier: every
+          filters: |
+            native:
+              - '**'
+              - '!**/*.md'
+              - '!docs/**'
+              - '!LICENSE'
+
   android:
     name: Android example
+    needs: changes
+    if: needs.changes.outputs.native == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 35
 
@@ -36,6 +61,7 @@ jobs:
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
+
 
       - name: Set up Java
         uses: actions/setup-java@v6
@@ -65,6 +91,8 @@ jobs:
 
   ios:
     name: iOS example
+    needs: changes
+    if: needs.changes.outputs.native == 'true'
     runs-on: macos-26
     timeout-minutes: 45
 
@@ -81,6 +109,7 @@ jobs:
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
+
 
       - name: Select Xcode 26.4.1
         run: sudo xcode-select --switch /Applications/Xcode_26.4.1.app
