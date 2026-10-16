@@ -11,7 +11,10 @@ cd "$root/example/android"
 # the resulting development APK can be packaged. It does not claim runtime or
 # on-device model compatibility.
 readonly gradle_log="$(mktemp "${TMPDIR:-/tmp}/expo-local-llm-gradle.XXXXXX")"
-trap 'rm -f "$gradle_log"' EXIT
+# Created before Gradle runs, so stale test results from an earlier local build
+# cannot satisfy the check below.
+readonly build_started="$(mktemp "${TMPDIR:-/tmp}/expo-local-llm-started.XXXXXX")"
+trap 'rm -f "$gradle_log" "$build_started"' EXIT
 
 # JDK 24+ restricts native access (JEP 472). Gradle's CMake configure step calls
 # a restricted method, and the resulting JVM warning fails the build unless
@@ -35,37 +38,21 @@ grep -Eq '^> Task :expo-local-llm:compileDebugKotlin($| )' "$gradle_log" || {
 }
 
 # Gradle passes a task with no matching sources as NO-SOURCE, so assert that
-# unit test results were actually produced rather than trusting the task.
-test_results=""
-for build_dir in "$root/android/build" "$root/example/node_modules/expo-local-llm/android/build"; do
-  if [[ -d "$build_dir" ]]; then
-    # A build directory without test results (e.g. a stale local one) must
-    # fall through to the next candidate rather than abort under `set -e`.
-    test_results="$(find "$build_dir/test-results/testDebugUnitTest" \
-      -name 'TEST-*.xml' -print -quit 2>/dev/null || true)"
-    if [[ -n "$test_results" ]]; then
-      break
-    fi
-  fi
-done
+# unit test results were actually produced rather than trusting the task. The
+# example autolinks the package from the repository root, so its Gradle output
+# lands in the repository's android/build.
+readonly module_build="$root/android/build"
 
+test_results="$(find "$module_build/test-results/testDebugUnitTest" \
+  -name 'TEST-*.xml' -newer "$build_started" -print -quit 2>/dev/null || true)"
 [[ -n "$test_results" ]] || {
   echo "No JVM unit test results were produced for expo-local-llm" >&2
   exit 1
 }
 
-compiled_class=""
-for build_dir in "$root/android/build" "$root/example/node_modules/expo-local-llm/android/build"; do
-  if [[ -d "$build_dir" ]]; then
-    compiled_class="$(find "$build_dir" -type f \
-      -path '*/expo/modules/localllm/ExpoLocalLlmModule.class' -print -quit)"
-    if [[ -n "$compiled_class" ]]; then
-      break
-    fi
-  fi
-done
-
+compiled_class="$(find "$module_build" -type f \
+  -path '*/expo/modules/localllm/ExpoLocalLlmModule.class' -print -quit 2>/dev/null || true)"
 [[ -n "$compiled_class" ]] || {
-    echo "No compiled ExpoLocalLlmModule Kotlin class was produced" >&2
-    exit 1
-  }
+  echo "No compiled ExpoLocalLlmModule Kotlin class was produced" >&2
+  exit 1
+}

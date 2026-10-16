@@ -12,7 +12,8 @@ readonly root="$(cd "$script_dir/../.." && pwd)"
 
 cd "$root"
 
-# The package must be built before the example resolves its file:.. dependency.
+# Metro resolves the example's import of the package from the repository root,
+# so build the package first.
 bun install --frozen-lockfile
 bun run build
 

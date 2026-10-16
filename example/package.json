@@ -11,12 +11,16 @@
   "dependencies": {
     "expo": "~58.0.11",
     "expo-build-properties": "~58.0.10",
-    "expo-local-llm": "file:..",
     "react": "19.3.0",
     "react-native": "0.88.0"
   },
   "devDependencies": {
     "@types/react": "~19.3.0",
     "typescript": "~6.0.3"
+  },
+  "expo": {
+    "autolinking": {
+      "nativeModulesDir": ".."
+    }
   }
 }
