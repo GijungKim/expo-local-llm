@@ -2,8 +2,14 @@
 
 The `Native compile` workflow regenerates the Expo SDK 58 example app and
 compiles its development configuration on both platforms. It runs on every
-pull request to `main` (rather than using workflow-level path filters), so it
-can safely be configured as a required check.
+push to `main` and on pull requests that change anything other than Markdown,
+`docs/` or `LICENSE`. The filter is a job inside the workflow rather than a
+workflow-level path filter, so a docs-only pull request reports the native
+jobs as skipped (which counts as passing) and the workflow can still be
+configured as a required check.
+
+Bun's package cache and the CocoaPods download cache are restored between runs;
+both are keyed on the lockfiles. The generated native projects are never cached.
 
 ## Toolchain contract
 
