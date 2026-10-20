@@ -30,9 +30,13 @@ If you are unsure if a PR would be accepted, open an issue first or look for iss
   bun run test:anti-slop
   bun run knip
   bun run test -- --runInBand
+  bun run typecheck
   bun run test:types
   bun run build
   ```
+
+- Type checks use the experimental `tsrs` compiler and require review when its pinned version changes. Expo's build and publishing scripts remain unchanged and emit JavaScript and declarations using TypeScript 6.0.3; `tsrs` only runs non-emitting checks.
+- The pinned `tsrs` package provides prebuilt binaries for macOS arm64 and Linux x64/arm64, but not Intel Mac or Windows. On an unsupported development host, run `bunx tsc --project tsconfig.json --noEmit` and `bunx tsc --project tsconfig.typecheck.json --noEmit` as manual fallbacks; CI remains authoritative.
 
 - Core pieces:
   - `src/` — TypeScript module (types, hook, SharedObject bridge)

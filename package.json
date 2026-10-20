@@ -19,7 +19,8 @@
     "knip": "knip --no-config-hints",
     "test": "expo-module test",
     "test:anti-slop": "node --test tools/oxlint/anti-slop/anti-slop.cases.ts",
-    "test:types": "tsc --project tsconfig.typecheck.json --noEmit",
+    "typecheck": "tsrs --project tsconfig.json --noEmit",
+    "test:types": "tsrs --project tsconfig.typecheck.json --noEmit",
     "prepare": "chmod +x node_modules/expo-module-scripts/bin/expo-module-* 2>/dev/null || true",
     "prepublishOnly": "expo-module prepublishOnly",
     "expo-module": "expo-module",
@@ -61,6 +62,7 @@
     "react": "19.3.0",
     "react-native": "0.88.0",
     "react-test-renderer": "19.3.0",
+    "tsrs": "0.18.0-ts7.1.0-dev.20260929",
     "typescript": "6.0.3"
   },
   "jest": {

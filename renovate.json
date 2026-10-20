@@ -50,6 +50,18 @@
       ],
       "enabled": false,
       "description": "Pinned per Expo SDK; patch updates within the SDK's minor are fine, minors/majors land with SDK upgrades"
+    },
+    {
+      "matchPackageNames": [
+        "tsrs"
+      ],
+      "groupName": "type checker",
+      "rangeStrategy": "pin",
+      "ignoreUnstable": false,
+      "respectLatest": false,
+      "automerge": false,
+      "minimumReleaseAge": "7 days",
+      "description": "Keep experimental tsrs updates isolated for compatibility review"
     }
   ]
 }
