@@ -53,5 +53,8 @@ jobs:
       - name: Check type tests
         run: bun run test:types
 
+      - name: Test build selection
+        run: bun run test:build-script
+
       - name: Build
         run: bun run build

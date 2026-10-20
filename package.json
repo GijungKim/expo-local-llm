@@ -12,17 +12,18 @@
     "expo-module.config.json"
   ],
   "scripts": {
-    "build": "expo-module build",
+    "build": "node tools/build.mjs build",
     "clean": "expo-module clean",
     "lint": "eslint src && oxlint .",
     "lint:anti-slop": "oxlint .",
     "knip": "knip --no-config-hints",
     "test": "expo-module test",
+    "test:build-script": "node --test tools/build.test.mjs",
     "test:anti-slop": "node --test tools/oxlint/anti-slop/anti-slop.cases.ts",
     "typecheck": "tsrs --project tsconfig.json --noEmit",
     "test:types": "tsrs --project tsconfig.typecheck.json --noEmit",
     "prepare": "chmod +x node_modules/expo-module-scripts/bin/expo-module-* 2>/dev/null || true",
-    "prepublishOnly": "expo-module prepublishOnly",
+    "prepublishOnly": "node tools/build.mjs prepublishOnly",
     "expo-module": "expo-module",
     "open:ios": "xed example/ios",
     "open:android": "open -a \"Android Studio\" example/android"
