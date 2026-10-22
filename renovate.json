@@ -25,10 +25,11 @@
     {
       "matchPackageNames": [
         "react",
-        "react-dom"
+        "react-dom",
+        "react-test-renderer"
       ],
       "enabled": false,
-      "description": "Pinned exactly by the Expo SDK; bumped via `npx expo install --fix` during SDK upgrades"
+      "description": "Pinned as a synchronized Expo SDK set; upgrade React, React DOM, and the test renderer together via `npx expo install --fix` during SDK upgrades"
     },
     {
       "matchPackageNames": [

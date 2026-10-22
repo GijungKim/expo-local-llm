@@ -21,11 +21,20 @@ From the repository root:
 bun install --frozen-lockfile
 bun run lint
 bun run test:anti-slop
+bun run test:build-script
 bun run knip
 bun run test -- --runInBand
+bun run typecheck
 bun run test:types
 bun run build
 ```
+
+For compiler or emitter updates, compare the generated JavaScript and declarations
+against the retained TypeScript 6 build, including the emitted file inventory.
+Review changed source maps for accurate debugging and declaration navigation;
+byte differences alone are not a failure. Verify a locally packed package with
+lifecycle scripts disabled in an isolated TypeScript consumer before publishing.
+Do not hide a `tsrs` compilation failure by retrying with another compiler.
 
 Build the example on each platform with the native toolchains installed:
 

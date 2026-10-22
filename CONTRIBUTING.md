@@ -28,6 +28,7 @@ If you are unsure if a PR would be accepted, open an issue first or look for iss
   bun install --frozen-lockfile
   bun run lint
   bun run test:anti-slop
+  bun run test:build-script
   bun run knip
   bun run test -- --runInBand
   bun run typecheck
@@ -35,8 +36,11 @@ If you are unsure if a PR would be accepted, open an issue first or look for iss
   bun run build
   ```
 
-- Type checks use the experimental `tsrs` compiler and require review when its pinned version changes. Expo's build and publishing scripts remain unchanged and emit JavaScript and declarations using TypeScript 6.0.3; `tsrs` only runs non-emitting checks.
-- The pinned `tsrs` package provides prebuilt binaries for macOS arm64 and Linux x64/arm64, but not Intel Mac or Windows. On an unsupported development host, run `bunx tsc --project tsconfig.json --noEmit` and `bunx tsc --project tsconfig.typecheck.json --noEmit` as manual fallbacks; CI remains authoritative.
+- Type checks and the default build use the experimental `tsrs` compiler pinned at `0.18.0-ts7.1.0-dev.20260929`. On macOS arm64 and Linux x64/arm64, builds emit JavaScript, declarations, and source maps with `tsrs`; `prepublishOnly` runs Expo's clean command and then the same build noninteractively.
+- Intel Mac, Windows, and other unsupported hosts select Expo's existing TypeScript 6.0.3 build before compilation and print a fallback diagnostic. Named `plugin`, `cli`, `utils`, and `scripts` build targets also remain delegated to Expo. A `tsrs` compilation failure never retries with TypeScript, so compiler errors cannot silently publish different output.
+- `bun run expo-module build` remains available to invoke the legacy emitter explicitly for comparison or troubleshooting.
+- Updating the `tsrs` pin requires review and an output comparison against TypeScript 6.0.3 covering every emitted JavaScript file, declaration, and source map. Source-map review must check usable navigation as well as valid coordinates and source content.
+- The pinned `tsrs` package provides prebuilt binaries for macOS arm64 and Linux x64/arm64, but not Intel Mac or Windows. On an unsupported development host, run `bunx tsc --project tsconfig.json --noEmit` and `bunx tsc --project tsconfig.typecheck.json --noEmit` as manual type-check fallbacks; CI remains authoritative.
 
 - Core pieces:
   - `src/` — TypeScript module (types, hook, SharedObject bridge)
