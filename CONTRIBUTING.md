@@ -21,7 +21,7 @@ If you are unsure if a PR would be accepted, open an issue first or look for iss
 
 ## Developing
 
-- Requirements: Node 24, Bun 1.4.2 (matching CI). The SDK 58 example requires Xcode 26.4+ on iOS; Android requires SDK 37, NDK 27.1.12297006, and JDK 17. See [native compile checks](tools/native-check/README.md).
+- Requirements: Node 24, Bun 1.4.4 (matching CI). The SDK 58 example requires Xcode 26.4+ on iOS; Android requires SDK 37, NDK 27.1.12297006, and JDK 17. See [native compile checks](tools/native-check/README.md).
 - Install dependencies and validate:
 
   ```bash
@@ -34,7 +34,10 @@ If you are unsure if a PR would be accepted, open an issue first or look for iss
   bun run typecheck
   bun run test:types
   bun run build
+  bun run check:size
   ```
+
+- `check:size` uses Bun 1.4.4, matching CI, to measure all exports from the built package entry point with external packages excluded. Keep the README's measurement and footnote current when changing the JS size budgets or measurement tooling. This measures standalone JavaScript, not native app overhead.
 
 - Type checks and the default build use the experimental `tsrs` compiler pinned at `0.18.0-ts7.1.0-dev.20260929`. On macOS arm64 and Linux x64/arm64, builds emit JavaScript, declarations, and source maps with `tsrs`; `prepublishOnly` runs Expo's clean command and then the same build noninteractively.
 - Intel Mac, Windows, and other unsupported hosts select Expo's existing TypeScript 6.0.3 build before compilation and print a fallback diagnostic. Named `plugin`, `cli`, `utils`, and `scripts` build targets also remain delegated to Expo. A `tsrs` compilation failure never retries with TypeScript, so compiler errors cannot silently publish different output.
