@@ -5,9 +5,15 @@
 [![Native compile](https://github.com/GijungKim/expo-local-llm/actions/workflows/native.yml/badge.svg)](https://github.com/GijungKim/expo-local-llm/actions/workflows/native.yml)
 [![License: MIT](https://img.shields.io/npm/l/expo-local-llm)](LICENSE)
 
-On-device language models for Expo apps, using the models the operating system already ships: Apple Foundation Models on iOS 26+ and Gemini Nano on Android. Generate text, stream it into a component, extract typed objects and call tools, with no model weights to bundle, no API key, and no network connection needed to generate.
+**On-device AI. No bundled model weights. No additional npm runtime dependencies.**
 
-Inference stays on the device. There is no cloud fallback; network access happens only inside tool handlers you write. The package has no runtime dependencies.
+Use system-provided models in Expo apps: Apple Foundation Models on iOS 26+ and Gemini Nano on Android. Generate text, stream it into a component, extract typed objects and call tools, with no API key.
+
+The full JavaScript API measures approximately **12.6 kB minified / 4.4 kB gzipped**, excluding external dependencies and native code.[^js-size]
+
+Inference stays on the device, with no cloud fallback. Once the model is ready, generation works offline; initial model provisioning or downloads may require network access and device storage. Tool handlers you write may also access the network.
+
+[^js-size]: Measured for v0.8.1 from the built package entry point with Bun 1.4.4: a minified browser-target ESM bundle, all public exports retained, packages external, and default `node:zlib` gzip compression. Sizes use decimal kB. This standalone JS measurement excludes Expo, React, React Native, native SDKs (including Android ML Kit), and model assets; it is not a Metro/Hermes or installed-app size measurement. Reproduce with `bun run build && bun run check:size`. CI enforces budgets of 13,000 minified bytes and 4,500 gzip bytes.
 
 ## At a glance
 
@@ -294,7 +300,7 @@ try {
 
 #### Using with Effect
 
-The library has no runtime dependencies, so it does not ship [Effect](https://effect.website) bindings. The error codes map directly onto a tagged error, so a wrapper takes a few lines:
+The library has no additional npm runtime dependencies, so it does not ship [Effect](https://effect.website) bindings. The error codes map directly onto a tagged error, so a wrapper takes a few lines:
 
 ```ts
 import { Data, Effect } from 'effect';

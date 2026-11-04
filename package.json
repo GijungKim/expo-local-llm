@@ -7,12 +7,16 @@
   "files": [
     "build",
     "src",
-    "ios",
-    "android",
+    "ios/*.swift",
+    "ios/*.podspec",
+    "android/build.gradle",
+    "android/proguard-rules.pro",
+    "android/src/main",
     "expo-module.config.json"
   ],
   "scripts": {
     "build": "node tools/build.mjs build",
+    "check:size": "bun tools/check-size.mjs",
     "clean": "expo-module clean",
     "lint": "eslint src && oxlint .",
     "lint:anti-slop": "oxlint .",
