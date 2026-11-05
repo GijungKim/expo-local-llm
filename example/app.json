@@ -18,7 +18,8 @@
             "deploymentTarget": "16.4"
           },
           "android": {
-            "minSdkVersion": 26
+            "minSdkVersion": 26,
+            "kotlinVersion": "2.2.21"
           }
         }
       ],

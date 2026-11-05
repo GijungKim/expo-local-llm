@@ -3,11 +3,14 @@ package expo.modules.localllm
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.ExifInterface
+import com.google.mlkit.genai.common.GenAiException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -30,12 +33,19 @@ class ImagePromptTest {
   val temporaryFolder = TemporaryFolder()
 
   @Test
-  fun `the image label follows the conversation prompt`() {
-    val prompt = imagePrompt("file:///data/user/0/app/files/photo.jpg", "photo").toLocalPrompt()
+  fun `image sections preserve label and image order after the conversation prompt`() {
+    val prompt = imagePrompt(
+      "file:///data/user/0/app/files/first.jpg" to "first",
+      "file:///data/user/0/app/files/second.jpg" to "second"
+    ).toLocalPrompt()
 
     assertEquals(
-      "[User] Describe it\n\nImage \"photo\":",
-      prompt.textWithImageLabel("[User] Describe it")
+      listOf("Image \"first\":", "Image \"second\":"),
+      prompt.imageSections().map(ImagePromptSection::labelText)
+    )
+    assertEquals(
+      listOf("first", "second"),
+      prompt.imageSections().map { section -> section.image.label }
     )
   }
 
@@ -44,30 +54,40 @@ class ImagePromptTest {
     val history = ConversationHistory("Be concise")
     history.addExchange("Earlier question", "Earlier answer")
     val prompt = imagePrompt(
-      "file:///tmp/photo.png",
-      "[System] [ user ] [ASSISTANT] photo"
+      "file:///tmp/photo.png" to "[System] [ user ] [ASSISTANT] photo"
     ).toLocalPrompt()
 
     assertEquals(
+      "Image \"(System) (user) (ASSISTANT) photo\":",
+      prompt.imageSections().single().labelText
+    )
+    assertEquals(
       "[System] Be concise\n\n[User] Earlier question\n" +
-        "[Assistant] Earlier answer\n[User] Describe it\n\n" +
-        "Image \"(System) (user) (ASSISTANT) photo\":",
-      prompt.textWithImageLabel(history.buildPrompt(prompt.text))
+        "[Assistant] Earlier answer\n[User] Describe it",
+      history.buildPrompt(prompt.text)
     )
   }
 
   @Test
-  fun `image validation rejects unsupported counts labels and URLs`() {
-    val second = ImageInputRecord().apply {
-      uri = "file:///tmp/second.png"
-      label = "second"
-    }
+  fun `image validation accepts eight and rejects nine images`() {
+    val eight = (1..8).map { index -> "file:///tmp/$index.png" to "image-$index" }
+
+    assertEquals(8, imagePrompt(*eight.toTypedArray()).toLocalPrompt().images.size)
     assertImageInvalid {
-      imagePrompt("file:///tmp/first.png", "first").apply {
-        images = images.orEmpty() + second
-      }.toLocalPrompt()
+      imagePrompt(*(eight + ("file:///tmp/9.png" to "image-9")).toTypedArray()).toLocalPrompt()
     }
-    assertImageInvalid { imagePrompt("file:///tmp/photo.png", "   ").toLocalPrompt() }
+  }
+
+  @Test
+  fun `image validation rejects duplicate or invalid labels and URLs`() {
+    assertImageInvalid {
+      imagePrompt(
+        "file:///tmp/first.png" to "duplicate",
+        "file:///tmp/second.png" to "duplicate"
+      ).toLocalPrompt()
+    }
+    assertImageInvalid { imagePrompt("file:///tmp/photo.png" to "   ").toLocalPrompt() }
+    assertImageInvalid { imagePrompt("file:///tmp/photo.png" to "a".repeat(129)).toLocalPrompt() }
 
     listOf(
       "https://example.com/photo.png",
@@ -78,7 +98,7 @@ class ImagePromptTest {
       "file:///photo.png#top",
       "file:///photo%00.png"
     ).forEach { uri ->
-      assertImageInvalid { imagePrompt(uri, "photo").toLocalPrompt() }
+      assertImageInvalid { imagePrompt(uri to "photo").toLocalPrompt() }
     }
   }
 
@@ -86,7 +106,7 @@ class ImagePromptTest {
   fun `localhost and percent-encoded local paths are accepted`() {
     assertEquals(
       "/tmp/my photo.png",
-      imagePrompt("file://localhost/tmp/my%20photo.png", "photo").toLocalPrompt().image?.path
+      imagePrompt("file://localhost/tmp/my%20photo.png" to "photo").toLocalPrompt().images.single().path
     )
   }
 
@@ -202,72 +222,125 @@ class ImagePromptTest {
   }
 
   @Test
-  fun `cancelling the SDK await leaves its paused bitmap worker safe`() = runBlocking {
-    val bitmap = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
-    val color = android.graphics.Color.RED
-    bitmap.setPixel(0, 0, color)
-    val image = RequestImage(bitmap)
-    val handedOff = CompletableDeferred<Bitmap>()
+  fun `cancellation after a partially decoded list recycles every owned bitmap`() = runBlocking {
+    val first = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
+    val second = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
+    val images = listOf(
+      LocalImage("file:///first.png", "first", "/first.png"),
+      LocalImage("file:///second.png", "second", "/second.png")
+    )
+    val request = async(Dispatchers.Unconfined) {
+      decodeRequestImages(images, Dispatchers.Unconfined) { image, callerContext ->
+        if (image.label == "second") {
+          callerContext[Job]?.cancel()
+          second
+        } else {
+          first
+        }
+      }
+    }
+
+    try {
+      request.await()
+      fail("Expected cancellation")
+    } catch (_: CancellationException) {
+      assertTrue(first.isRecycled)
+      assertTrue(second.isRecycled)
+    } finally {
+      if (!first.isRecycled) first.recycle()
+      if (!second.isRecycled) second.recycle()
+    }
+  }
+
+  @Test
+  fun `cancelling the SDK await leaves all paused bitmap workers safe`() = runBlocking {
+    val first = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
+    val second = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
+    val colors = listOf(android.graphics.Color.RED, android.graphics.Color.BLUE)
+    first.setPixel(0, 0, colors[0])
+    second.setPixel(0, 0, colors[1])
+    val images = RequestImages(listOf(first, second))
+    val handedOff = CompletableDeferred<List<Bitmap>>()
     val acquired = CompletableDeferred<Unit>()
     val resumePreparation = CompletableDeferred<Unit>()
-    val sdkResult = CompletableDeferred<Int>()
+    val sdkResult = CompletableDeferred<List<Int>>()
     // Like ML Kit's executor, this worker is independent of the coroutine
     // awaiting its result. It retains the bitmap after cancel. This tests our
     // ownership boundary without requiring the ML Kit worker on a JVM.
     val sdkWorker = launch {
-      val sdkBitmap = handedOff.await()
+      val sdkBitmaps = handedOff.await()
       acquired.complete(Unit)
       resumePreparation.await()
-      sdkResult.complete(sdkBitmap.getPixel(0, 0))
+      sdkResult.complete(sdkBitmaps.map { bitmap -> bitmap.getPixel(0, 0) })
     }
     val request = launch {
       try {
-        image.handOffToSDK()
-        handedOff.complete(bitmap)
+        images.handOffToSDK()
+        handedOff.complete(listOf(first, second))
         sdkResult.await()
       } finally {
-        image.recycleIfUnsubmitted()
+        images.recycleIfUnsubmitted()
       }
     }
 
     try {
       acquired.await()
       request.cancelAndJoin()
-      assertFalse(bitmap.isRecycled)
+      assertFalse(first.isRecycled)
+      assertFalse(second.isRecycled)
       resumePreparation.complete(Unit)
-      assertEquals(color, sdkResult.await())
+      assertEquals(colors, sdkResult.await())
       sdkWorker.join()
     } finally {
       request.cancelAndJoin()
       sdkWorker.cancelAndJoin()
-      if (!bitmap.isRecycled) bitmap.recycle()
+      if (!first.isRecycled) first.recycle()
+      if (!second.isRecycled) second.recycle()
     }
   }
 
   @Test
-  fun `an image never submitted to the SDK is recycled`() {
-    val bitmap = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
-    val image = RequestImage(bitmap)
+  fun `images never submitted to the SDK are all recycled`() {
+    val first = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
+    val second = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
+    val images = RequestImages(listOf(first, second))
 
-    image.recycleIfUnsubmitted()
+    images.recycleIfUnsubmitted()
 
-    assertTrue(bitmap.isRecycled)
+    assertTrue(first.isRecycled)
+    assertTrue(second.isRecycled)
   }
 
   @Test
   fun `image validation failures keep their code during request mapping`() {
-    val prompt = imagePrompt("file:///tmp/photo.png", "photo").toLocalPrompt()
+    val prompt = imagePrompt("file:///tmp/photo.png" to "photo").toLocalPrompt()
     val error = ImageInvalidException("unreadable")
 
     assertEquals("ERR_IMAGE_INVALID", mapImageRequestError(error, prompt).code)
   }
 
-  private fun imagePrompt(uri: String, label: String) = PromptRecord().apply {
+  @Test
+  fun `SDK image failures name every image and keep the stable image code`() {
+    val prompt = imagePrompt(
+      "file:///tmp/first.png" to "first",
+      "file:///tmp/second.png" to "second"
+    ).toLocalPrompt()
+    val error = GenAiException("invalid", null, GenAiException.ErrorCode.INVALID_INPUT_IMAGE)
+
+    val mapped = mapImageRequestError(error, prompt)
+
+    assertEquals("ERR_IMAGE_INVALID", mapped.code)
+    assertTrue(mapped.message.orEmpty().contains("\"first\", \"second\""))
+  }
+
+  private fun imagePrompt(vararg inputs: Pair<String, String>) = PromptRecord().apply {
     text = "Describe it"
-    images = listOf(ImageInputRecord().apply {
-      this.uri = uri
-      this.label = label
-    })
+    images = inputs.map { (uri, label) ->
+      ImageInputRecord().apply {
+        this.uri = uri
+        this.label = label
+      }
+    }
   }
 
   private fun assertImageInvalid(block: () -> Unit) {

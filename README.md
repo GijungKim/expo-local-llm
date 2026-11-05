@@ -20,7 +20,7 @@ Inference stays on the device, with no cloud fallback. Once the model is ready, 
 | | iOS 26+ (Foundation Models) | Android (Gemini Nano) |
 |---|---|---|
 | Text generation and streaming | ✅ Verified on device | ⚠️ Experimental: builds and reports eligibility; generation not yet validated on Gemini Nano hardware |
-| Image prompts | iOS 27+, Xcode 27+, and a ready vision-capable system model | ⚠️ Experimental: one local image per request; not yet validated on Gemini Nano hardware |
+| Image prompts | iOS 27+, Xcode 27+, and a ready vision-capable system model | ⚠️ Experimental: up to eight local images per request; not yet validated on Gemini Nano hardware |
 | Structured output (typed, schema-constrained) | ✅ Constrained decoding, validated in JS | ❌ Rejected explicitly |
 | Tool calling (schema-constrained arguments) | ✅ | ❌ Rejected explicitly |
 | Stable error codes | ✅ | ✅ |
@@ -44,7 +44,7 @@ Set the deployment targets the module needs in `app.json`:
         "expo-build-properties",
         {
           "ios": { "deploymentTarget": "16.4" },
-          "android": { "minSdkVersion": 26 }
+            "android": { "minSdkVersion": 26, "kotlinVersion": "2.2.21" }
         }
       ]
     ]
@@ -86,7 +86,7 @@ export function Summary({ notes }: { notes: string }) {
 | | Requirement |
 |---|---|
 | iOS | iOS 26+ with Apple Intelligence enabled to generate. The module loads on iOS 16.4+ and reports `notEligible` below 26. The host project must target iOS 16.4+, and building needs Xcode 26.4 or newer. |
-| Android | `minSdkVersion` 26+. Generation needs a Gemini Nano–capable device; most Android phones, including most mid-range ones, report `notEligible`. |
+| Android | `minSdkVersion` 26+ and Kotlin 2.2.21+ to compile ML Kit beta4. Generation needs a Gemini Nano–capable device; most Android phones, including most mid-range ones, report `notEligible`. |
 | Expo SDK | 52+ peer range. The example app targets SDK 58 / React Native 0.88; the peer range is not a tested compatibility matrix. |
 
 A native development build is required, built locally or with EAS Build. Installing or upgrading the package needs a new binary; EAS Update cannot add native code. An iPhone simulator can run Foundation Models when the host Mac has Apple Intelligence enabled; latency and thermals still need real hardware.
@@ -193,15 +193,15 @@ const description = await generate({
 
 An `LLMPrompt` is either the existing string prompt or `{ text, images? }`. Each image requires a `uri` and a nonblank `label` of at most 128 characters without control characters; the label is sent to the model with the image. Android neutralises conversation role markers in labels; iOS uses native attachment metadata. Download remote images to a local file before calling the library. Only local `file://` URIs with an empty or `localhost` authority are accepted; credentials, ports, query strings and fragments are rejected. Percent-encode spaces in file paths (for example, `my%20photo.jpg`).
 
-Both platforms currently accept **one image per request**.
+Both platforms accept **up to eight images per request**, with a unique label for each image. The model's context and device resources still determine whether a particular request can complete.
 
 iOS uses native Foundation Models image attachments and requires iOS 27+, an app built with Xcode 27+, and a ready system model that advertises vision support. Older OS versions, older builds, and models without vision reject image prompts with `ERR_IMAGE_NOT_SUPPORTED`; text prompts still work with the existing iOS 26 / Xcode 26.4 minimum. The framework handles image scaling and orientation. Completed image turns remain in the native session transcript until `reset()` or release.
 
-Android remains experimental. The one-image limit keeps the existing ML Kit `1.0.0-beta2` dependency and Android toolchain compatibility; multiple-image input needs a newer SDK/toolchain. Image decoding runs off the main thread, limits the long edge to 2048 pixels, and applies EXIF orientation. Before SDK submission, failed or cancelled requests recycle their bitmap. After submission, garbage collection reclaims it when all references are gone: ML Kit's bitmap-preparation worker can outlive cancellation of the coroutine awaiting it. On Android, images belong only to the current request: conversation history retains the text and response, so attach the image again for a visual follow-up.
+Android remains experimental. Multiple images use ML Kit `1.0.0-beta4`, requiring Kotlin 2.2.21+ in the host app. The module also supplies coroutines 1.11.0 for the SDK's runtime ABI. Image decoding runs off the main thread, limits each image's long edge to 2048 pixels, and applies EXIF orientation. Before SDK submission, failed or cancelled requests recycle all decoded bitmaps. After submission, garbage collection reclaims them when all references are gone: ML Kit's bitmap-preparation worker can outlive cancellation of the coroutine awaiting it. On Android, images belong only to the current request: conversation history retains the text and response, so attach the images again for a visual follow-up.
 
 `getCapabilities().images` returns `'supported'` when the iOS integration, OS, and ready system model support vision. On Android it returns `'unknown'` when the native bridge implements the image-prompt protocol and the last cached model availability is `'available'`, because ML Kit cannot report whether that device's model understands images. It returns `'unsupported'` otherwise, including when newer JavaScript runs against an older native binary; rebuild the app to add native image support. The initial Android cache is `'unknown'`, so the first call may report images as `'unsupported'` even on an eligible device. On an Android bridge with image support, each call also starts an asynchronous availability refresh and emits `availabilityChange`; read capabilities again when the hook's `availability` changes. A ready text model does not guarantee image understanding: it may reject or ignore the image. Android image inference has not yet been validated on compatible hardware. Invalid image inputs fail with `ERR_IMAGE_INVALID`.
 
-The example app’s **Image** tab bundles a known image and streams a description of its shapes and colors. The prompt does not provide the answer, and the sample requires no photo-library permissions or network download in a Release build.
+The example app’s **Image** tab bundles a known image and streams a description of its shapes and colors. Its **Images** tab compares two labeled fixtures. The prompt does not provide the answer, and the samples require no photo-library permissions or network download in a Release build.
 
 ### Extract typed data (iOS)
 
@@ -477,7 +477,7 @@ On iOS 27, Foundation Models reports some failures with error types that only th
 | `ERR_NOT_SUPPORTED` | On-device generation is not available on this OS version. |
 | `ERR_RESPONSE_FORMAT_NOT_SUPPORTED` | Structured output is not supported on this platform. |
 | `ERR_TOOL_NOT_SUPPORTED` | Tool calling is not supported on this platform. |
-| `ERR_IMAGE_INVALID` | Invalid image URI, unreadable image, invalid label, more than one image, or image rejected as invalid by ML Kit. |
+| `ERR_IMAGE_INVALID` | Invalid image URI, unreadable image, invalid or duplicate label, too many images for the platform, or image rejected as invalid by ML Kit. |
 | `ERR_IMAGE_NOT_SUPPORTED` | Image prompts are not supported by this backend. |
 | `ERR_MODEL_DOWNLOAD_FAILED` | Android: downloading Gemini Nano failed. |
 | `ERR_SCHEMA_INVALID` | A schema is malformed (`SchemaInvalidError`). |
@@ -502,7 +502,7 @@ Android readiness is checked asynchronously and may initially be `unknown`. Pref
 | Conversation history | Kept by the native session | Replayed in the prompt: the last 10 exchanges, with role markers in conversation text neutralised |
 | Model availability | Built into the OS | May need `downloadModel()` |
 | Token limits | OS and model dependent | SDK and model dependent |
-| Image prompts | One local image per request on iOS 27+ with a ready vision-capable model and an Xcode 27+ build; retained in native history | One local image per request; device model support is unknown |
+| Image prompts | Up to eight local images per request on iOS 27+ with a ready vision-capable model and an Xcode 27+ build; retained in native history | Up to eight local images per request; device model support is unknown |
 
 - **Context window.** Neither platform trims history to fit the model's context; Android only caps it at 10 exchanges. iOS rejects with `ERR_CONTEXT_WINDOW_EXCEEDED`; call `reset()` or start a new session.
 - **One generation per session.** Overlapping requests reject with `ERR_SESSION_BUSY`. After cancelling, await the original promise before starting another request. Use separate sessions for independent conversations; events belong to their session.

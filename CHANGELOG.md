@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.0 (unreleased)
+
+- Accept local image attachments through generation, sessions, and hooks while preserving string prompts. Requests support up to eight images with unique labels and strict local-file validation.
+- Add native image understanding on iOS 27+ when built with Xcode 27+ and the ready system model advertises vision support. Completed images remain in the native conversation transcript.
+- Upgrade Android to ML Kit Prompt beta4 and coroutines 1.11.0. Image decoding applies EXIF orientation, bounds each image to a 2048-pixel edge, and preserves bitmap ownership across cancellation. Android history remains text-only; model image support is reported as unknown and image inference remains experimental.
+- Add image capability reporting, stable image error codes, and one- and two-image examples.
+
+**Migration notes:** all Android consumers now require Kotlin 2.2.21+, including text-only apps. Configure the Kotlin Gradle plugin or `expo-build-properties` accordingly and rebuild the native app. Android's minimum SDK remains 26; iOS text generation retains its iOS 26 / Xcode 26.4 minimum.
+
 ## 0.8.1
 
 - Fix Android availability in minified release builds, which Expo SDK 58 turns on by default. R8 removed the constructors ML Kit uses to start up, so `getAvailability()` reported `unknown` on every device, including eligible ones. The library now ships a consumer ProGuard rule that keeps them; no app changes are needed beyond rebuilding. A failed availability check is now also logged under the `ExpoLocalLlm` tag instead of being swallowed silently.

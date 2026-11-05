@@ -175,10 +175,13 @@ describe("native-present API", () => {
     expect(mockRelease).toHaveBeenCalledTimes(1);
   });
 
-  it("forwards image prompts unchanged and releases one-shot sessions", async () => {
+  it("forwards multiple image inputs unchanged and releases one-shot sessions", async () => {
     const prompt = {
       text: "Describe the foreground",
-      images: [{ uri: "file:///tmp/photo.jpg", label: "foreground" }],
+      images: [
+        { uri: "file:///tmp/photo.jpg", label: "foreground" },
+        { uri: "file:///tmp/other.jpg", label: "background" },
+      ],
     };
     mockRespond.mockResolvedValueOnce("A building");
 

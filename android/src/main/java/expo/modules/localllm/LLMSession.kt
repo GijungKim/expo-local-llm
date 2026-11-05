@@ -5,6 +5,7 @@ import android.util.Log
 import com.google.mlkit.genai.common.DownloadStatus
 import com.google.mlkit.genai.common.FeatureStatus
 import com.google.mlkit.genai.common.GenAiException
+import com.google.mlkit.genai.prompt.Content
 import com.google.mlkit.genai.prompt.GenerateContentRequest
 import com.google.mlkit.genai.prompt.Generation
 import com.google.mlkit.genai.prompt.GenerativeModel
@@ -164,19 +165,23 @@ class LLMSession(
   }
 
   private suspend fun prepareRequest(prompt: LocalPrompt, fullText: String): PreparedRequest {
-    var bitmap: Bitmap? = null
+    var bitmaps = emptyList<Bitmap>()
     try {
-      bitmap = prompt.image?.let { decodeRequestImage(it) }
+      bitmaps = decodeRequestImages(prompt.images)
       val request = buildGenerateContentRequest(
-        prompt.textWithImageLabel(fullText),
-        bitmap,
+        fullText,
+        prompt.imageSections().zip(bitmaps),
         temperature,
         maxTokens,
         topK
       )
-      return PreparedRequest(request, bitmap)
+      return PreparedRequest(request, bitmaps)
     } catch (error: Throwable) {
-      bitmap?.takeUnless(Bitmap::isRecycled)?.recycle()
+      bitmaps.forEach { bitmap ->
+        if (!bitmap.isRecycled) {
+          bitmap.recycle()
+        }
+      }
       throw error
     }
   }
@@ -408,34 +413,32 @@ class LLMSession(
 
 private class PreparedRequest(
   private val request: GenerateContentRequest,
-  bitmap: Bitmap?
+  bitmaps: List<Bitmap>
 ) {
-  private val image = RequestImage(bitmap)
+  private val images = RequestImages(bitmaps)
 
   fun handOffToSDK(): GenerateContentRequest {
-    image.handOffToSDK()
+    images.handOffToSDK()
     return request
   }
 
-  fun recycleIfUnsubmitted() = image.recycleIfUnsubmitted()
+  fun recycleIfUnsubmitted() = images.recycleIfUnsubmitted()
 }
 
 internal fun buildGenerateContentRequest(
   text: String,
-  bitmap: Bitmap?,
+  images: List<Pair<ImagePromptSection, Bitmap>>,
   temperature: Float?,
   maxTokens: Int?,
   topK: Int?
 ): GenerateContentRequest {
-  val textPart = TextPart(text)
-  val builder = if (bitmap == null) {
-    GenerateContentRequest.Builder(textPart)
-  } else {
-    // beta2 exposes exactly this multimodal constructor. Multipart Content,
-    // needed for multiple images, first appears in beta3 and requires a newer
-    // Kotlin toolchain than the library's supported Expo versions.
-    GenerateContentRequest.Builder(ImagePart(bitmap), textPart)
-  }
+  val content = Content.Builder().addPart(TextPart(text)).apply {
+    images.forEach { (section, bitmap) ->
+      addPart(TextPart(section.labelText))
+      addPart(ImagePart(bitmap))
+    }
+  }.build()
+  val builder = GenerateContentRequest.Builder(content)
   return builder.apply {
     this.temperature = temperature
     maxOutputTokens = maxTokens
@@ -448,12 +451,14 @@ internal fun mapImageRequestError(error: Exception, prompt: LocalPrompt): CodedE
     return error
   }
   if (
-    prompt.image != null &&
+    prompt.images.isNotEmpty() &&
     error is GenAiException &&
     error.errorCode == GenAiException.ErrorCode.INVALID_INPUT_IMAGE
   ) {
+    val labels = prompt.images.joinToString { image -> "\"${image.label}\"" }
+    val imageDescription = if (prompt.images.size == 1) "image $labels" else "images $labels"
     return ImageInvalidException(
-      "The on-device model rejected image \"${prompt.image.label}\"; try a smaller or different image",
+      "The on-device model rejected $imageDescription; try smaller or different images",
       error
     )
   }

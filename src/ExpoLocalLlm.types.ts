@@ -79,8 +79,9 @@ export type LLMPrompt =
   | {
       text: string;
       /**
-       * One local image per request. On iOS, completed images remain in the
-       * session transcript; Android history retains only text.
+       * Up to eight local images per request on iOS and Android.
+       * Labels must be unique within a request. On iOS, completed images remain
+       * in the session transcript; Android history retains only text.
        */
       images?: ImageInput[];
     };
