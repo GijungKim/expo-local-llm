@@ -297,7 +297,9 @@ export type SessionConfig = {
 
 export type TokenEvent = {
   requestId?: string;
+  /** Incremental text; empty when Android corrects divergent tool-stream callbacks. */
   token: string;
+  /** Authoritative full text. Replace displayed text with this value, including corrections. */
   accumulated: string;
 };
 
