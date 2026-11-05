@@ -40,9 +40,6 @@ internal fun modelAvailability(status: Int): ModelAvailability = when (status) {
 internal suspend fun modelReadiness(client: GenerativeModel): Map<String, String> =
   queryModelReadiness({ client.checkStatus() }, { client.getAvailableFeatures() })
 
-internal suspend fun requireToolSupport(client: GenerativeModel) =
-  requireToolSupport({ client.checkStatus() }, { client.getAvailableFeatures() })
-
 /** Generation retains SDK failures for the normal error mapper; discovery may return unknown. */
 internal suspend fun requireToolSupport(
   checkStatus: suspend () -> Int,

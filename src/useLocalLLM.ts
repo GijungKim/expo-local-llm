@@ -131,6 +131,10 @@ export function useLocalLLM<const Definition extends Schema = Schema>(
     useState<InferSchema<Definition> | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
   const [runtimeError, setRuntimeError] = useState<HookError | null>(null);
+  const [readinessError, setReadinessError] = useState<{
+    model: AndroidModel;
+    error: HookError;
+  } | null>(null);
   const [activeToolCalls, setActiveToolCalls] = useState<ActiveToolCall[]>([]);
   const activeRequestRef = useRef<ActiveRequest | null>(null);
   // A cancelled stream resolves with incomplete JSON, which must not be
@@ -230,7 +234,10 @@ export function useLocalLLM<const Definition extends Schema = Schema>(
       nextSession?.release();
     };
   }, [stableConfig]);
-  const currentError = creationError ?? runtimeError;
+  const currentError =
+    creationError ??
+    (readinessError?.model === androidModel ? readinessError.error : null) ??
+    runtimeError;
   const schema = stableConfig.schema;
 
   useEffect(() => {
@@ -241,6 +248,8 @@ export function useLocalLLM<const Definition extends Schema = Schema>(
     let disposed = false;
     const setAvailability = (value: ModelAvailability) => {
       setModelAvailability({ model: androidModel, availability: value });
+      setReadinessError(null);
+      if (value !== "downloading") setDownloadProgress(null);
     };
 
     subs.push(
@@ -267,12 +276,13 @@ export function useLocalLLM<const Definition extends Schema = Schema>(
         setAvailability(queryAvailability(androidModel));
       } catch (error: unknown) {
         setAvailability("unknown");
-        setRuntimeError(
-          toHookError(
+        setReadinessError({
+          model: androidModel,
+          error: toHookError(
             error instanceof Error ? error : null,
             "Failed to refresh model availability"
-          )
-        );
+          ),
+        });
       }
     };
     const { AppState } = require("react-native");
@@ -439,6 +449,7 @@ export function useLocalLLM<const Definition extends Schema = Schema>(
       };
       activeRequestRef.current = request;
       setRuntimeError(null);
+      setReadinessError(null);
       setCompletedObject(null);
       setIsGenerating(true);
       try {
@@ -493,6 +504,7 @@ export function useLocalLLM<const Definition extends Schema = Schema>(
       };
       activeRequestRef.current = request;
       setRuntimeError(null);
+      setReadinessError(null);
       setStreamedText("");
       setStreamedJSON("");
       setStreamedObject(null);
@@ -567,6 +579,7 @@ export function useLocalLLM<const Definition extends Schema = Schema>(
     setStreamedObject(null);
     setCompletedObject(null);
     setRuntimeError(null);
+    setReadinessError(null);
     setActiveToolCalls([]);
     setIsGenerating(false);
   }, [session]);

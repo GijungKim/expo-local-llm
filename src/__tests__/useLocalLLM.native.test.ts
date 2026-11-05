@@ -1072,6 +1072,165 @@ describe("Android model selection", () => {
     await act(async () => renderer.unmount());
   });
 
+  it.each(["available", "downloadRequired", "unknown"])(
+    "clears selected-model download progress when it becomes %s",
+    async (availability) => {
+      let current!: HookResult;
+      let renderer!: TestRenderer.ReactTestRenderer;
+      await act(async () => {
+        renderer = TestRenderer.create(
+          React.createElement(AndroidSelectedConsumer, {
+            model: "previewFast",
+            onValue: (value) => {
+              current = value;
+            },
+          })
+        );
+      });
+      const change = [...mockNativeModule.addListener.mock.calls]
+        .reverse()
+        .find(([name]) => name === "availabilityChange")[1];
+      const progress = [...mockNativeModule.addListener.mock.calls]
+        .reverse()
+        .find(([name]) => name === "downloadProgress")[1];
+      await act(async () => {
+        change({ availability: "downloading", androidModel: "previewFast" });
+        progress({ progress: 0.5, androidModel: "previewFast" });
+      });
+      expect(current.downloadProgress).toBe(0.5);
+      await act(async () => {
+        change({ availability, androidModel: "default" });
+      });
+      expect(current.downloadProgress).toBe(0.5);
+      await act(async () => {
+        change({ availability, androidModel: "previewFast" });
+      });
+      expect(current.downloadProgress).toBeNull();
+      expect(current.availability).toBe(availability);
+      await act(async () => renderer.unmount());
+    }
+  );
+
+  it("drops a previous model's readiness error when selection changes", async () => {
+    mockNativeModule.getAvailability.mockImplementation((model: string) => {
+      if (model === "previewFast")
+        throw new Error("Preview service unavailable");
+      return "available";
+    });
+    let current!: HookResult;
+    let renderer!: TestRenderer.ReactTestRenderer;
+    const onValue = (value: HookResult) => {
+      current = value;
+    };
+    await act(async () => {
+      renderer = TestRenderer.create(
+        React.createElement(AndroidSelectedConsumer, {
+          model: "previewFast",
+          onValue,
+        })
+      );
+    });
+    expect(current.error).toBe("Preview service unavailable");
+    expect(current.availability).toBe("unknown");
+    await act(async () => {
+      renderer.update(
+        React.createElement(AndroidSelectedConsumer, {
+          model: "default",
+          onValue,
+        })
+      );
+    });
+    expect(current.error).toBeNull();
+    expect(current.availability).toBe("available");
+    expect(current.respond).toBeDefined();
+    await act(async () => renderer.unmount());
+  });
+
+  it("clears recovered readiness errors without erasing generation failures", async () => {
+    mockNativeModule.getAvailability.mockImplementation(() => {
+      throw new Error("Readiness service unavailable");
+    });
+    let current!: HookResult;
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(
+        React.createElement(AndroidSelectedConsumer, {
+          model: "previewFast",
+          onValue: (value) => {
+            current = value;
+          },
+        })
+      );
+    });
+    expect(current.error).toBe("Readiness service unavailable");
+    const change = [...mockNativeModule.addListener.mock.calls]
+      .reverse()
+      .find(([name]) => name === "availabilityChange")[1];
+    const AppState = jest.requireMock(
+      "react-native-web/dist/exports/AppState"
+    ).default;
+    const foreground = AppState.addEventListener.mock.calls.at(-1)[1];
+    mockNativeModule.getAvailability.mockReturnValue("available");
+    await act(async () => {
+      foreground("active");
+    });
+    expect(current.error).toBeNull();
+    const failure = new Error("Generation failed independently");
+    mockInstances.at(-1).respond.mockRejectedValueOnce(failure);
+    await act(async () => {
+      await expect(current.respond!("test")).rejects.toBe(failure);
+    });
+    expect(current.error).toBe(failure.message);
+    await act(async () => {
+      change({ availability: "available", androidModel: "previewFast" });
+    });
+    expect(current.error).toBe(failure.message);
+    await act(async () => renderer.unmount());
+  });
+
+  it.each(["respond", "streamResponse", "reset"] as const)(
+    "clears stale readiness errors when %s starts",
+    async (operation) => {
+      mockNativeModule.getAvailability.mockReturnValue("available");
+      let current!: HookResult;
+      let renderer!: TestRenderer.ReactTestRenderer;
+      await act(async () => {
+        renderer = TestRenderer.create(
+          React.createElement(AndroidSelectedConsumer, {
+            model: "previewFast",
+            onValue: (value) => {
+              current = value;
+            },
+          })
+        );
+      });
+      const start = current[operation]!;
+      const AppState = jest.requireMock(
+        "react-native-web/dist/exports/AppState"
+      ).default;
+      const foreground = AppState.addEventListener.mock.calls.at(-1)[1];
+      mockNativeModule.getAvailability.mockImplementation(() => {
+        throw new Error("Readiness failed");
+      });
+      await act(async () => foreground("active"));
+      expect(current.error).toBe("Readiness failed");
+      if (operation === "reset") {
+        await act(async () => {
+          await start("test");
+        });
+        expect(current.error).toBeNull();
+      } else {
+        const failure = new Error("New generation failure");
+        mockInstances.at(-1)[operation].mockRejectedValueOnce(failure);
+        await act(async () => {
+          await expect(start("test")).rejects.toBe(failure);
+        });
+        expect(current.error).toBe(failure.message);
+      }
+      await act(async () => renderer.unmount());
+    }
+  );
+
   it("services Android native tool events through the existing handler path", async () => {
     mockNativeModule.getAvailability.mockReturnValue("available");
     const handler = jest.fn(async () => "opaque result");

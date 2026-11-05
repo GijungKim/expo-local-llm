@@ -42,11 +42,12 @@ unit test results. `ios.sh` performs a signing-disabled Debug build for a generi
 iOS Simulator destination, compiling and linking the Swift module against the
 Xcode 26 SDK.
 
-The Android JVM tests cover library logic that does not need the model runtime —
-prompt assembly, conversation trimming, image input validation, bitmap decoding,
-and bitmap ownership when cancellation races decoding or a paused SDK worker.
-Image tests use Robolectric; they do not establish image understanding or
-inference behavior on an AICore-capable device. Gradle reports a task with no
+The Android JVM tests exercise production `LLMSession` orchestration through a
+narrow scripted model boundary, alongside prompt assembly, conversation trimming,
+image validation/decoding, and bitmap ownership. Session tests use real SDK request
+and response types and cover callback/final-response accumulation, multi-round tools,
+cancellation, reset/release, model ownership, errors, and recovery. They use
+Robolectric and do not run AICore inference. Gradle reports a task with no
 matching sources as `NO-SOURCE` and still passes, so the check asserts that test
 result files exist instead of trusting the task outcome.
 
@@ -107,4 +108,16 @@ Forcing the Release bundle task matters in an existing checkout: Gradle can othe
 
 SDK artifact limitations observed on JDK 17: beta5 advertises Kotlin default-argument `FunctionCall.copy` metadata without shipping `copy$default`, so tests use its public constructor (as production does). Instantiating SDK `ImagePart` on the JVM raises a verifier error in its URI constructor. The image tests exercise our actual decoding, ownership and bitmap-free transcript records, without bypassing JVM verification or replacing SDK classes. DEX packaging and Android hardware image inference are separate checks.
 
-These are helper tests, not `LLMSession` integration tests. Actual multi-round orchestration, model-close ownership, callback/return accumulation, registration transitions, and image retention through SDK requests remain unverified. In particular, the image-history test does not construct an image-bearing tool request.
+### Android runtime image checks
+
+`ImageRequestAndroidTest` runs the production session on Android's ART runtime with a scripted model boundary and real ML Kit image/request classes. This closes the JVM verifier gap above without disabling verification. It checks 0/1/8 image requests, label/bitmap order, generation options, and image retention across a tool follow-up followed by text-only persisted history. It does not call AICore or establish image understanding.
+
+Start a local emulator or connect a test device, then run from `example/android`:
+
+```sh
+ANDROID_SERIAL=<serial> ./gradlew :expo-local-llm:connectedDebugAndroidTest \
+  -I ../../tools/native-check/android-instrumentation.gradle \
+  -PreactNativeArchitectures=arm64-v8a --no-daemon --console=plain
+```
+
+Use the architecture matching your target. The init script sets compile SDK 37 for the standalone test APK because the Expo SDK 58 dependency graph requires it. This is a test-only override; the production library still compiles with SDK 35. CI runs the JVM session tests; connected tests require an explicit emulator/device run. Runtime request construction and session behavior are distinct from hardware inference and model output quality.

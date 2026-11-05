@@ -1,0 +1,12 @@
+// Standalone instrumentation APKs include the SDK 58 example's dependency graph.
+// Its AndroidX/Expo AAR metadata requires a newer compile SDK than the library's
+// own sources. Apply only to connected tests; production keeps its SDK 35 floor.
+allprojects {
+  if (path == ':expo-local-llm') {
+    plugins.withId('com.android.library') {
+      androidComponents.finalizeDsl { extension ->
+        extension.compileSdk = 37
+      }
+    }
+  }
+}

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Reconcile Android tool-stream callbacks with the SDK’s complete final response so terminal-only text is delivered without duplication. When callbacks diverge, the final response wins: a corrective token event carries an empty `token` and replacement `accumulated`. Direct listeners must read `accumulated` rather than append tokens to reflect corrections; the hook already does.
+- Isolate Android readiness/download serialization per model, so a preview download does not block default-model status queries.
+- Clear finished download progress and recovered/model-switched readiness errors in the hook while preserving generation failures.
+- Add production-session integration coverage and Android runtime image-request tests, including tool follow-up image retention. These checks do not run Gemini Nano inference; Android remains experimental.
+
 ## 0.9.0 — 2026-11-05
 
 - Implement Android native function calling through the existing tool API and hook handler servicing. Validate complete batches before sequential dispatch; bound rounds, calls, timeouts, and result bytes. Replay native call/response protocol, retain whole exchange groups, and cancel pending handlers safely across reset, release, and registration changes.

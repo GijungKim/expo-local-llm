@@ -15,7 +15,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
@@ -25,10 +24,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 
-class LLMSession(
-  config: SessionConfig
+class LLMSession private constructor(
+  config: SessionConfig,
+  runtime: SessionRuntime?
 ) : SharedObject() {
+  constructor(config: SessionConfig) : this(config, null)
+
   private val history = ConversationHistory(config.instructions)
   private val androidModel = AndroidModel.parse(config.androidModel)
   private var tools = NativeTool.declarations(config.tools.orEmpty())
@@ -43,8 +46,9 @@ class LLMSession(
   private val topK = config.options?.topK
   private val lifecycle = GenerationLifecycle()
   private val stateLock = lifecycle.lock
-  private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-  private var model: GenerativeModel? = null
+  private val activeRuntime = runtime ?: SessionRuntime.production { name, body -> emit(name, body) }
+  private val scope = CoroutineScope(SupervisorJob() + activeRuntime.coroutineContext)
+  private var model: SessionModel? = null
   private val activeGeneration get() = lifecycle.active
   private var modelResetPending = false
   private val disposed get() = lifecycle.disposed
@@ -52,14 +56,16 @@ class LLMSession(
   companion object {
     private const val LOG_TAG = "ExpoLocalLlm"
 
-    @Volatile
-    private var cachedAvailability = mapOf<AndroidModel, ModelAvailability>()
-    private val availabilityMutex = Mutex()
+    private val cachedAvailability = ConcurrentHashMap<AndroidModel, ModelAvailability>()
+    private val availabilityMutexes = AndroidModel.entries.associateWith { Mutex() }
+
+    internal fun createForTesting(config: SessionConfig, runtime: SessionRuntime) =
+      LLMSession(config, runtime)
 
     internal fun getCachedAvailability(selection: AndroidModel): ModelAvailability =
       cachedAvailability[selection] ?: ModelAvailability.unknown
 
-    internal suspend fun refreshAvailability(selection: AndroidModel): ModelAvailability = availabilityMutex.withLock {
+    internal suspend fun refreshAvailability(selection: AndroidModel): ModelAvailability = withAvailabilityLock(selection) {
       var client: GenerativeModel? = null
       val availability = try {
         val activeClient = selection.client().also { client = it }
@@ -74,25 +80,25 @@ class LLMSession(
         // Generation.getClient() creates an independent engine-backed client.
         client?.close()
       }
-      cachedAvailability = cachedAvailability + (selection to availability)
+      cachedAvailability[selection] = availability
       availability
     }
 
-    internal suspend fun readiness(selection: AndroidModel): Map<String, String> = availabilityMutex.withLock {
+    internal suspend fun readiness(selection: AndroidModel): Map<String, String> = withAvailabilityLock(selection) {
       val client = selection.client()
       try {
         modelReadiness(client).also {
-          cachedAvailability = cachedAvailability + (selection to ModelAvailability.valueOf(it.getValue("availability")))
+          cachedAvailability[selection] = ModelAvailability.valueOf(it.getValue("availability"))
         }
       } finally { client.close() }
     }
 
-    internal suspend fun downloadModel(selection: AndroidModel, onProgress: (Float) -> Unit) = availabilityMutex.withLock {
+    internal suspend fun downloadModel(selection: AndroidModel, onProgress: (Float) -> Unit) = withAvailabilityLock(selection) {
       var client: GenerativeModel? = null
       try {
         val activeClient = selection.client().also { client = it }
         onProgress(0f)
-        cachedAvailability = cachedAvailability + (selection to ModelAvailability.downloading)
+        cachedAvailability[selection] = ModelAvailability.downloading
         var bytesToDownload: Long? = null
         activeClient.download().collect { status ->
           when (status) {
@@ -118,6 +124,11 @@ class LLMSession(
         client?.close()
       }
     }
+
+    internal suspend fun <T> withAvailabilityLock(
+      selection: AndroidModel,
+      operation: suspend () -> T
+    ): T = requireNotNull(availabilityMutexes[selection]).withLock { operation() }
   }
 
   private fun beginGeneration(kind: GenerationKind, requestId: String?) = lifecycle.begin(kind, requestId)
@@ -165,12 +176,12 @@ class LLMSession(
     }
   }
 
-  private fun getOrCreateModel(generation: ActiveGeneration): GenerativeModel =
+  private fun getOrCreateModel(generation: ActiveGeneration): SessionModel =
     synchronized(stateLock) {
       if (!isCurrentLocked(generation)) {
         throw CancellationException("Generation was cancelled")
       }
-      model ?: androidModel.client().also { model = it }
+      model ?: activeRuntime.createModel(androidModel).also { model = it }
     }
 
   private fun isCurrentLocked(generation: ActiveGeneration): Boolean =
@@ -274,7 +285,7 @@ class LLMSession(
                   throw CancellationException("Generation was cancelled")
                 }
                 accumulated += token
-                emit("token", mapOf(
+                activeRuntime.emit("token", mapOf(
                   "token" to token,
                   "accumulated" to accumulated,
                   "requestId" to generation.requestId
@@ -289,7 +300,7 @@ class LLMSession(
         lifecycle.finishOutput(generation) {
           if (protocol) history.addToolExchange(requireNotNull(generation.exchange))
           else history.addExchange(prompt.text, accumulated)
-          emit("streamComplete", mapOf(
+          activeRuntime.emit("streamComplete", mapOf(
             "text" to accumulated,
             "requestId" to generation.requestId
           ))
@@ -300,7 +311,7 @@ class LLMSession(
       } catch (error: Exception) {
         val failure = mapImageRequestError(error, prompt)
         lifecycle.finishOutput(generation) {
-          emit("streamError", mapOf(
+          activeRuntime.emit("streamError", mapOf(
             "error" to failure.message,
             "code" to failure.code,
             "requestId" to generation.requestId
@@ -348,7 +359,7 @@ class LLMSession(
     }
     val client = getOrCreateModel(generation)
     if (registered.isNotEmpty()) {
-      requireToolSupport(client)
+      requireToolSupport(client::checkStatus, client::getAvailableFeatures)
     }
     val bitmaps = decodeRequestImages(prompt.images)
     val ownership = RequestImages(bitmaps)
@@ -364,6 +375,7 @@ class LLMSession(
       val budget = ToolBudget()
       var accumulated = ""
       while (true) {
+        val roundStart = accumulated
         val request = GenerateContentRequest.Builder(previous + exchange).apply {
           temperature = this@LLMSession.temperature
           maxOutputTokens = maxTokens
@@ -380,7 +392,7 @@ class LLMSession(
               if (!isCurrentLocked(generation)) return@ToolStreamingCallback
               accumulated += text
               onAccumulated(accumulated)
-              emit("token", mapOf("token" to text, "accumulated" to accumulated, "requestId" to generation.requestId))
+              activeRuntime.emit("token", mapOf("token" to text, "accumulated" to accumulated, "requestId" to generation.requestId))
             }
           }
           try { client.generateContent(request, callback) }
@@ -391,7 +403,30 @@ class LLMSession(
         }
         val candidate = response.candidates.firstOrNull() ?: throw ToolFailedException("Missing model candidate")
         val calls = budget.validateBatch(candidate.functionCalls, registered, candidate.finishReason)
-        if (generation.kind == GenerationKind.RESPOND) accumulated += candidate.text
+        if (generation.kind == GenerationKind.RESPOND) {
+          accumulated += candidate.text
+        } else {
+          synchronized(stateLock) {
+            if (!isCurrentLocked(generation)) throw CancellationException("Generation cancelled")
+            val terminalText = candidate.text
+            val callbackText = accumulated.substring(roundStart.length)
+            if (terminalText != callbackText) {
+              val suffix = if (terminalText.startsWith(callbackText)) {
+                terminalText.removePrefix(callbackText)
+              } else {
+                // The complete response is authoritative; accumulated can replace prior text.
+                Log.w(LOG_TAG, "Correcting streamed text from the terminal model response")
+                ""
+              }
+              accumulated = roundStart + terminalText
+              onAccumulated(accumulated)
+              activeRuntime.emit(
+                "token",
+                mapOf("token" to suffix, "accumulated" to accumulated, "requestId" to generation.requestId)
+              )
+            }
+          }
+        }
         val modelTurn = TranscriptTurn.Model(candidate.text, calls.map { it.call })
         exchange.add(modelTurn.content())
         transcript.add(modelTurn)
@@ -405,7 +440,7 @@ class LLMSession(
         val resultTurn = serviceToolBatch(calls, generation.pending, toolTimeoutMillis) { id, validated ->
           synchronized(stateLock) {
             if (!isCurrentLocked(generation)) throw CancellationException("Generation cancelled")
-            emit("toolCall", mapOf(
+            activeRuntime.emit("toolCall", mapOf(
               "callId" to id,
               "toolName" to validated.call.name,
               "arguments" to validated.arguments,

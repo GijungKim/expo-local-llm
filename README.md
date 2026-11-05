@@ -9,7 +9,7 @@
 
 Use system-provided models in Expo apps: Apple Foundation Models on iOS 26+ and Gemini Nano on Android. Generate text, stream it into a component, extract typed objects and call tools, with no API key.
 
-The full JavaScript API measures approximately **17.7 kB minified / 6.0 kB gzipped**, excluding external dependencies and native code.[^js-size]
+The full JavaScript API measures approximately **17.8 kB minified / 6.0 kB gzipped**, excluding external dependencies and native code.[^js-size]
 
 Inference stays on the device, with no cloud fallback. Once the model is ready, generation works offline; initial model provisioning or downloads may require network access and device storage. Tool handlers you write may also access the network.
 
@@ -21,13 +21,15 @@ Inference stays on the device, with no cloud fallback. Once the model is ready, 
 
 | | iOS 26+ (Foundation Models) | Android (Gemini Nano) |
 |---|---|---|
-| Text generation and streaming | ✅ Verified on device | ⚠️ Experimental: builds and reports eligibility; generation not yet validated on Gemini Nano hardware |
-| Image prompts | iOS 27+, Xcode 27+, and a ready vision-capable system model | ⚠️ Experimental: up to eight local images per request; not yet validated on Gemini Nano hardware |
+| Text generation and streaming | ✅ Verified on device | ⚠️ Experimental; Gemini Nano inference not yet validated on hardware |
+| Image prompts | iOS 27+, Xcode 27+, and a ready vision-capable system model | ⚠️ Experimental; up to eight images, inference not yet validated on hardware |
 | Native structured output (schema-constrained) | ✅ Constrained decoding, validated in JS | ❌ Rejected explicitly |
-| Explicit validated output (one-shot) | Text generation + JS schema validation; device check pending | ⚠️ Experimental text generation + JS schema validation; device check pending |
-| Tool calling (validated primitive arguments) | ✅ Schema-constrained | Experimental; selected model must advertise function calling |
+| Explicit validated output (one-shot) | Text generation + JS schema validation; device check pending | ⚠️ Experimental; text generation + JS schema validation and optional repair; device inference check pending |
+| Tool calling (validated primitive arguments) | ✅ Schema-constrained | ⚠️ Experimental; selected model must advertise function calling; inference not yet validated on hardware |
 | Stable error codes | ✅ | ✅ |
 | Model download | Managed by the OS | `downloadModel()` with progress |
+
+**Android remains experimental.** Automated tests exercise our production session orchestration, and emulator tests exercise real SDK image requests. They do not run Gemini Nano inference or establish model quality, device eligibility, or AICore behavior. The [verification record](docs/release-verification.md) separates these checks.
 
 Unsupported features fail with a clear error instead of degrading silently. `getCapabilities()` reports integration support, including `experimental: true` on Android; `getModelReadiness()` reports selected-model readiness and tool support. For explicit validated output, check the `text` capability; `structuredOutput` describes native constrained output only. See [how this library is verified](#how-this-library-is-verified).
 
