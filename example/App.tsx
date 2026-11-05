@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { StyleSheet, Text, TextInput, TouchableOpacity, View, ScrollView, ActivityIndicator } from 'react-native';
+import { StyleSheet, Text, TextInput, TouchableOpacity, View, ScrollView, ActivityIndicator, Image, useWindowDimensions } from 'react-native';
+import { Asset } from 'expo-asset';
 import { useLocalLLM, type Schema } from 'expo-local-llm';
 
 const recipeSchema: Schema = {
@@ -21,12 +22,18 @@ const recipeSchema: Schema = {
   },
 };
 
-type Mode = 'chat' | 'json';
+const imageSample = require('./assets/image-sample.png');
+const imageQuestion = 'Describe the shapes and their colors, from left to right.';
+
+type Mode = 'chat' | 'json' | 'image';
 
 export default function App() {
+  const { width } = useWindowDimensions();
   const [mode, setMode] = useState<Mode>('chat');
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<{ role: 'user' | 'assistant'; text: string }[]>([]);
+  const [isPreparingImage, setIsPreparingImage] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
 
   const {
     availability,
@@ -47,7 +54,9 @@ export default function App() {
           schema: recipeSchema,
         }
       : {
-          instructions: 'You are a helpful health assistant. Keep responses concise.',
+          instructions: mode === 'image'
+            ? 'Describe only what you can see in the attached image. Keep the answer to two sentences.'
+            : 'You are a helpful health assistant. Keep responses concise.',
         }
   );
 
@@ -61,6 +70,26 @@ export default function App() {
     try {
       await streamResponse(prompt);
     } catch {}
+  };
+
+  const handleDescribeImage = async () => {
+    if (!streamResponse || isPreparingImage || isGenerating) return;
+    setIsPreparingImage(true);
+    setImageError(null);
+    try {
+      const asset = Asset.fromModule(imageSample);
+      await asset.downloadAsync();
+      if (!asset.localUri) throw new Error('The sample image is not available locally.');
+      setIsPreparingImage(false);
+      await streamResponse({
+        text: imageQuestion,
+        images: [{ uri: asset.localUri, label: 'sample' }],
+      });
+    } catch (failure) {
+      setImageError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setIsPreparingImage(false);
+    }
   };
 
   React.useEffect(() => {
@@ -96,21 +125,41 @@ export default function App() {
           <TouchableOpacity
             style={[styles.tab, mode === 'chat' && styles.tabActive]}
             onPress={() => setMode('chat')}
-            disabled={isGenerating}
+            disabled={isGenerating || isPreparingImage}
           >
             <Text style={[styles.tabText, mode === 'chat' && styles.tabTextActive]}>Chat</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.tab, mode === 'json' && styles.tabActive]}
             onPress={() => setMode('json')}
-            disabled={isGenerating}
+            disabled={isGenerating || isPreparingImage}
           >
             <Text style={[styles.tabText, mode === 'json' && styles.tabTextActive]}>JSON (recipe)</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, mode === 'image' && styles.tabActive]}
+            onPress={() => setMode('image')}
+            disabled={isGenerating || isPreparingImage}
+          >
+            <Text style={[styles.tabText, mode === 'image' && styles.tabTextActive]}>Image</Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      {mode === 'chat' ? (
+      {mode === 'image' ? (
+        <ScrollView style={styles.messages} contentContainerStyle={styles.imageContent}>
+          <Image
+            source={imageSample}
+            style={[styles.sampleImage, { width: width - 32, height: (width - 32) * 340 / 600 }]}
+            resizeMode="contain"
+            accessibilityLabel="Image sent to the local model"
+          />
+          <Text style={styles.imageQuestion}>{imageQuestion}</Text>
+          {imageError && <Text style={styles.error}>{imageError}</Text>}
+          {streamedText ? <Text style={styles.imageAnswer}>{streamedText}</Text> : null}
+          {(isGenerating || isPreparingImage) && !streamedText ? <ActivityIndicator /> : null}
+        </ScrollView>
+      ) : mode === 'chat' ? (
         <ScrollView style={styles.messages} contentContainerStyle={styles.messagesContent}>
           {messages.map((msg, i) => (
             <View key={i} style={[styles.bubble, msg.role === 'user' ? styles.userBubble : styles.assistantBubble]}>
@@ -140,16 +189,24 @@ export default function App() {
       )}
 
       <View style={styles.inputRow}>
-        <TextInput
+        {mode !== 'image' && <TextInput
           style={styles.input}
           value={input}
           onChangeText={setInput}
           placeholder={mode === 'json' ? 'What kind of recipe?' : 'Ask something...'}
           editable={!isGenerating}
-        />
+        />}
         {isGenerating ? (
           <TouchableOpacity style={styles.sendBtn} onPress={cancelStream}>
             <Text style={styles.sendBtnText}>Stop</Text>
+          </TouchableOpacity>
+        ) : mode === 'image' ? (
+          <TouchableOpacity
+            style={[styles.sendBtn, styles.imageButton]}
+            onPress={handleDescribeImage}
+            disabled={isPreparingImage || !streamResponse || availability !== 'available'}
+          >
+            <Text style={styles.sendBtnText}>Describe image</Text>
           </TouchableOpacity>
         ) : (
           <TouchableOpacity style={styles.sendBtn} onPress={handleSend} disabled={!input.trim() || !streamResponse}>
@@ -177,6 +234,11 @@ const styles = StyleSheet.create({
   messages: { flex: 1 },
   messagesContent: { padding: 16, gap: 8 },
   jsonContent: { padding: 16 },
+  imageContent: { padding: 16, gap: 16 },
+  sampleImage: { backgroundColor: '#fff', borderRadius: 12 },
+  imageQuestion: { fontSize: 15, color: '#666', lineHeight: 22 },
+  imageAnswer: { fontSize: 17, color: '#1c1c1e', lineHeight: 25, backgroundColor: '#fff', padding: 16, borderRadius: 12 },
+  imageButton: { flex: 1, alignItems: 'center', minHeight: 44 },
   jsonText: { fontFamily: 'Menlo', fontSize: 13, color: '#1c1c1e' },
   hint: { fontSize: 14, color: '#888', lineHeight: 20 },
   bubble: { padding: 12, borderRadius: 16, maxWidth: '80%' },

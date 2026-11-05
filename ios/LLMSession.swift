@@ -419,9 +419,12 @@ class LLMSession: SharedObject {
 
   // MARK: - Generation
 
-  func respond(to prompt: String, requestId: String? = nil) async throws -> String {
+  func respond(to prompt: LocalPrompt, requestId: String? = nil) async throws -> String {
     guard #available(iOS 26, *) else {
       throw NotSupportedException()
+    }
+    guard prompt.image == nil || FoundationModelBridge.supportsImages() else {
+      throw ImageNotSupportedException()
     }
     let context = try beginGeneration(kind: .respond, requestId: requestId)
     let task = Task { [weak self] () throws -> GenerationOutcome in
@@ -470,9 +473,12 @@ class LLMSession: SharedObject {
 
   /// Stream a response, emitting `token`/`partial` events along the way.
   /// Cancellation resolves with the partial text and emits no completion.
-  func streamResponse(prompt: String, requestId: String? = nil) async throws -> String {
+  func streamResponse(prompt: LocalPrompt, requestId: String? = nil) async throws -> String {
     guard #available(iOS 26, *) else {
       throw NotSupportedException()
+    }
+    guard prompt.image == nil || FoundationModelBridge.supportsImages() else {
+      throw ImageNotSupportedException()
     }
     let context = try beginGeneration(kind: .stream, requestId: requestId)
     let task: Task<GenerationOutcome, Error>
@@ -536,7 +542,7 @@ class LLMSession: SharedObject {
   private func makeTextStreamTask(
     generation: ActiveGeneration,
     session: Any,
-    prompt: String,
+    prompt: LocalPrompt,
     options: FoundationModels.GenerationOptions
   ) -> Task<GenerationOutcome, Error> {
     Task { [weak self] in
@@ -584,7 +590,7 @@ class LLMSession: SharedObject {
   private func makeSchemaStreamTask(
     generation: ActiveGeneration,
     session: Any,
-    prompt: String,
+    prompt: LocalPrompt,
     schema: GenerationSchema,
     includeSchemaInPrompt: Bool,
     options: FoundationModels.GenerationOptions

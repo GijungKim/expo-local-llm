@@ -314,6 +314,43 @@ describe("useLocalLLM native session lifecycle", () => {
     await act(async () => renderer.unmount());
   });
 
+  it("forwards image prompts through respond and streaming", async () => {
+    let result: HookResult | null = null;
+    let renderer: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(
+        React.createElement(ResultConsumer, {
+          instructions: "images",
+          onValue: (value) => (result = value),
+        })
+      );
+    });
+    const nativeSession = mockInstances.at(-1);
+    const prompt = {
+      text: "Describe this image",
+      images: [{ uri: "file:///tmp/one.jpg", label: "photo" }],
+    };
+    nativeSession.respond.mockResolvedValueOnce("changed");
+    nativeSession.streamResponse.mockResolvedValueOnce("changed gradually");
+
+    await act(async () => {
+      await result!.respond!(prompt);
+    });
+    expect(nativeSession.respond).toHaveBeenCalledWith(
+      prompt,
+      expect.any(String)
+    );
+
+    await act(async () => {
+      await result!.streamResponse!(prompt);
+    });
+    expect(nativeSession.streamResponse).toHaveBeenCalledWith(
+      prompt,
+      expect.any(String)
+    );
+    await act(async () => renderer.unmount());
+  });
+
   it("does not clear an active stream when a second stream is rejected", async () => {
     let result: HookResult | null = null;
     let renderer: TestRenderer.ReactTestRenderer;

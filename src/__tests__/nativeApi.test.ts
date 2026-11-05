@@ -27,6 +27,8 @@ jest.mock("expo-modules-core", () => {
   }
   const nativeModule = {
     getAvailability: jest.fn(() => "available"),
+    supportsImages: jest.fn(() => false),
+    getImagePromptVersion: jest.fn(() => 1),
     downloadModel: jest.fn(),
     addListener: jest.fn(() => ({ remove: jest.fn() })),
     LLMSession: MockNativeSession,
@@ -51,6 +53,9 @@ const mockSessionConstructor = mockNativeModule.__sessionConstructor;
 describe("native-present API", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockNativeModule.getAvailability.mockReturnValue("available");
+    mockNativeModule.supportsImages.mockReturnValue(false);
+    mockNativeModule.getImagePromptVersion.mockReturnValue(1);
     mockPlatform.OS = "ios";
     mockPlatform.Version = 26;
   });
@@ -68,6 +73,7 @@ describe("native-present API", () => {
       status: "available",
       text: true,
       streaming: true,
+      images: "unsupported",
       tools: true,
       structuredOutput: true,
       structuredOutputMode: "constrained",
@@ -80,6 +86,7 @@ describe("native-present API", () => {
       backend: "geminiNano",
       text: true,
       streaming: true,
+      images: "unknown",
       tools: false,
       structuredOutput: false,
       structuredOutputMode: "unsupported",
@@ -94,6 +101,7 @@ describe("native-present API", () => {
       status: "unsupportedOS",
       text: false,
       streaming: false,
+      images: "unsupported",
       tools: false,
       structuredOutput: false,
     });
@@ -105,11 +113,37 @@ describe("native-present API", () => {
       status: "unsupportedPlatform",
       text: false,
       streaming: false,
+      images: "unsupported",
       tools: false,
       structuredOutput: false,
       structuredOutputMode: "unsupported",
       experimental: false,
     });
+  });
+
+  it("reports no image support for an older Android bridge without the image protocol", () => {
+    mockPlatform.OS = "android";
+    const marker = mockNativeModule.getImagePromptVersion;
+    delete mockNativeModule.getImagePromptVersion;
+    try {
+      expect(getCapabilities()).toMatchObject({ images: "unsupported" });
+      expect(mockNativeModule.getAvailability).not.toHaveBeenCalled();
+    } finally {
+      mockNativeModule.getImagePromptVersion = marker;
+    }
+  });
+
+  it("reports iOS image support only with a ready vision-capable native backend", () => {
+    mockPlatform.Version = 27;
+    mockNativeModule.supportsImages.mockReturnValue(true);
+    expect(getCapabilities()).toMatchObject({ images: "supported" });
+
+    mockNativeModule.supportsImages.mockReturnValue(false);
+    expect(getCapabilities()).toMatchObject({ images: "unsupported" });
+
+    mockPlatform.Version = 26;
+    mockNativeModule.supportsImages.mockReturnValue(true);
+    expect(getCapabilities()).toMatchObject({ images: "unsupported" });
   });
 
   it("keeps backend capabilities separate from current model readiness", () => {
@@ -118,12 +152,38 @@ describe("native-present API", () => {
       status: "available",
       backend: "appleFoundationModels",
       text: true,
+      images: "unsupported",
     });
+
+    mockPlatform.OS = "android";
+    expect(getCapabilities()).toMatchObject({ images: "unsupported" });
+
+    mockNativeModule.getAvailability.mockImplementation(() => {
+      throw new Error("model service unavailable");
+    });
+    expect(getCapabilities()).toMatchObject({ images: "unsupported" });
   });
 
   it("always releases one-shot sessions when native generation fails", async () => {
+    const prompt = {
+      text: "Describe this image",
+      images: [{ uri: "file:///tmp/photo.jpg", label: "photo" }],
+    };
     mockRespond.mockRejectedValueOnce(new Error("native failure"));
-    await expect(generate("hello")).rejects.toThrow("native failure");
+    await expect(generate(prompt)).rejects.toThrow("native failure");
+    expect(mockRespond).toHaveBeenCalledWith(prompt);
+    expect(mockRelease).toHaveBeenCalledTimes(1);
+  });
+
+  it("forwards image prompts unchanged and releases one-shot sessions", async () => {
+    const prompt = {
+      text: "Describe the foreground",
+      images: [{ uri: "file:///tmp/photo.jpg", label: "foreground" }],
+    };
+    mockRespond.mockResolvedValueOnce("A building");
+
+    await expect(generate(prompt)).resolves.toBe("A building");
+    expect(mockRespond).toHaveBeenCalledWith(prompt);
     expect(mockRelease).toHaveBeenCalledTimes(1);
   });
 
@@ -237,6 +297,11 @@ describe("getLocalLLMErrorCode", () => {
     expect(
       getLocalLLMErrorCode(new LocalLLMError("ERR_SESSION_BUSY", "busy"))
     ).toBe("ERR_SESSION_BUSY");
+    expect(
+      getLocalLLMErrorCode(
+        new LocalLLMError("ERR_IMAGE_NOT_SUPPORTED", "no vision model")
+      )
+    ).toBe("ERR_IMAGE_NOT_SUPPORTED");
     expect(getLocalLLMErrorCode(new StructuredOutputValidationError([]))).toBe(
       "ERR_STRUCTURED_OUTPUT_INVALID"
     );

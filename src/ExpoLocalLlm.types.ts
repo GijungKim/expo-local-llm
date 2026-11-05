@@ -48,6 +48,10 @@ export type LocalLLMErrorCode =
   | "ERR_TOOL_NOT_SUPPORTED"
   /** Android only: downloading Gemini Nano failed. */
   | "ERR_MODEL_DOWNLOAD_FAILED"
+  /** An image URI, label, or image count is invalid. */
+  | "ERR_IMAGE_INVALID"
+  /** The current platform or device model cannot accept image inputs. */
+  | "ERR_IMAGE_NOT_SUPPORTED"
   /** The schema passed to a session or `generateObject` is malformed. */
   | "ERR_SCHEMA_INVALID"
   /** The generated JSON did not match the schema. */
@@ -60,6 +64,26 @@ export type GenerationOptions = {
   maxTokens?: number;
   topK?: number;
 };
+
+/** A local image supplied with one model request. */
+export type ImageInput = {
+  /** A local `file://` URI. */
+  uri: string;
+  /** A name the prompt can use to refer to this image. */
+  label: string;
+};
+
+/** A text-only prompt or a multimodal prompt containing local images. */
+export type LLMPrompt =
+  | string
+  | {
+      text: string;
+      /**
+       * One local image per request. On iOS, completed images remain in the
+       * session transcript; Android history retains only text.
+       */
+      images?: ImageInput[];
+    };
 
 // Tool calling types
 
@@ -217,6 +241,16 @@ export type LocalLLMCapabilities = {
     | "unsupportedPlatform";
   text: boolean;
   streaming: boolean;
+  /**
+   * iOS reports `supported` when built with Xcode 27+, running on iOS 27+,
+   * and the ready system model advertises vision support.
+   * Android reports `unknown` when the native bridge implements image prompts
+   * and its last cached model availability is `available`; otherwise `unsupported`.
+   * Older native binaries report `unsupported`. The initial cache is `unknown`, so
+   * this starts as `unsupported` until availability has been refreshed.
+   * ML Kit cannot query whether the installed device model accepts images.
+   */
+  images: "supported" | "unknown" | "unsupported";
   tools: boolean;
   structuredOutput: boolean;
   structuredOutputMode: "constrained" | "unsupported";

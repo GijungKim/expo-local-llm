@@ -1,4 +1,4 @@
-import { defineTool, generateObject, useLocalLLM } from "../index";
+import { defineTool, generate, generateObject, useLocalLLM } from "../index";
 
 type Equal<Left, Right> = (<Value>() => Value extends Left ? 1 : 2) extends <
   Value
@@ -47,12 +47,28 @@ async function verifyGenerateObjectInference() {
 }
 
 function useHookInference() {
-  const { streamedObject, completedObject, errorCode } = useLocalLLM({
+  const {
+    streamedObject,
+    completedObject,
+    errorCode,
+    respond,
+    streamResponse,
+  } = useLocalLLM({
     responseFormat: "json",
     schema: {
       mood: { type: "string", enum: ["happy", "sad"] },
       tags: { type: "array", items: { type: "string" } },
     },
+  });
+
+  respond?.({
+    text: "Describe this image",
+    images: [{ uri: "file:///photo.jpg", label: "photo" }],
+  });
+  streamResponse?.("Describe this text");
+  generate({
+    text: "Compare",
+    images: [{ uri: "file:///before.jpg", label: "before" }],
   });
 
   type CompletedIsExact = Expect<

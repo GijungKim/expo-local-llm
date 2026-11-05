@@ -44,6 +44,16 @@ enum FoundationModelBridge {
     }
   }
 
+  static func supportsImages() -> Bool {
+    #if compiler(>=6.4)
+    if #available(iOS 27, *) {
+      return SystemLanguageModel.default.isAvailable
+        && SystemLanguageModel.default.capabilities.contains(.vision)
+    }
+    #endif
+    return false
+  }
+
   static func createSession(
     instructions: String?,
     dynamicTools: [DynamicTool] = [],
@@ -89,17 +99,29 @@ enum FoundationModelBridge {
     )
   }
 
-  static func respond(session: Any, prompt: String, options: FoundationModels.GenerationOptions) async throws -> String {
+  static func respond(session: Any, prompt: LocalPrompt, options: FoundationModels.GenerationOptions) async throws -> String {
     guard let session = session as? LanguageModelSession else {
       throw SessionInvalidException()
     }
-    let response = try await session.respond(to: prompt, options: options)
+    let response: LanguageModelSession.Response<String>
+    if prompt.image == nil {
+      response = try await session.respond(to: prompt.text, options: options)
+    } else {
+      #if compiler(>=6.4)
+      guard #available(iOS 27, *), supportsImages() else {
+        throw ImageNotSupportedException()
+      }
+      response = try await session.respond(to: makePrompt(prompt), options: options)
+      #else
+      throw ImageNotSupportedException()
+      #endif
+    }
     return response.content
   }
 
   static func respond(
     session: Any,
-    prompt: String,
+    prompt: LocalPrompt,
     schema: GenerationSchema,
     includeSchemaInPrompt: Bool,
     options: FoundationModels.GenerationOptions
@@ -107,18 +129,35 @@ enum FoundationModelBridge {
     guard let session = session as? LanguageModelSession else {
       throw SessionInvalidException()
     }
-    let response = try await session.respond(
-      to: prompt,
-      schema: schema,
-      includeSchemaInPrompt: includeSchemaInPrompt,
-      options: options
-    )
+    let response: LanguageModelSession.Response<GeneratedContent>
+    if prompt.image == nil {
+      response = try await session.respond(
+        to: prompt.text,
+        schema: schema,
+        includeSchemaInPrompt: includeSchemaInPrompt,
+        options: options
+      )
+    } else {
+      #if compiler(>=6.4)
+      guard #available(iOS 27, *), supportsImages() else {
+        throw ImageNotSupportedException()
+      }
+      response = try await session.respond(
+        to: makePrompt(prompt),
+        schema: schema,
+        includeSchemaInPrompt: includeSchemaInPrompt,
+        options: options
+      )
+      #else
+      throw ImageNotSupportedException()
+      #endif
+    }
     return response.content.jsonString
   }
 
   static func stream(
     session: Any,
-    prompt: String,
+    prompt: LocalPrompt,
     options: FoundationModels.GenerationOptions
   ) -> StreamHandle<String> {
     guard let session = session as? LanguageModelSession else {
@@ -128,7 +167,19 @@ enum FoundationModelBridge {
     let (stream, continuation) = AsyncThrowingStream<String, Error>.makeStream()
     let producer = Task {
       do {
-        let responseStream = session.streamResponse(to: prompt, options: options)
+        let responseStream: LanguageModelSession.ResponseStream<String>
+        if prompt.image == nil {
+          responseStream = session.streamResponse(to: prompt.text, options: options)
+        } else {
+          #if compiler(>=6.4)
+          guard #available(iOS 27, *), supportsImages() else {
+            throw ImageNotSupportedException()
+          }
+          responseStream = session.streamResponse(to: makePrompt(prompt), options: options)
+          #else
+          throw ImageNotSupportedException()
+          #endif
+        }
         for try await partial in responseStream {
           continuation.yield(partial.content)
         }
@@ -151,7 +202,7 @@ enum FoundationModelBridge {
 
   static func stream(
     session: Any,
-    prompt: String,
+    prompt: LocalPrompt,
     schema: GenerationSchema,
     includeSchemaInPrompt: Bool,
     options: FoundationModels.GenerationOptions
@@ -163,12 +214,29 @@ enum FoundationModelBridge {
     let (stream, continuation) = AsyncThrowingStream<PartialSnapshot, Error>.makeStream()
     let producer = Task {
       do {
-        let responseStream = session.streamResponse(
-          to: prompt,
-          schema: schema,
-          includeSchemaInPrompt: includeSchemaInPrompt,
-          options: options
-        )
+        let responseStream: LanguageModelSession.ResponseStream<GeneratedContent>
+        if prompt.image == nil {
+          responseStream = session.streamResponse(
+            to: prompt.text,
+            schema: schema,
+            includeSchemaInPrompt: includeSchemaInPrompt,
+            options: options
+          )
+        } else {
+          #if compiler(>=6.4)
+          guard #available(iOS 27, *), supportsImages() else {
+            throw ImageNotSupportedException()
+          }
+          responseStream = session.streamResponse(
+            to: makePrompt(prompt),
+            schema: schema,
+            includeSchemaInPrompt: includeSchemaInPrompt,
+            options: options
+          )
+          #else
+          throw ImageNotSupportedException()
+          #endif
+        }
         for try await snapshot in responseStream {
           let content = snapshot.content
           continuation.yield(PartialSnapshot(json: content.jsonString, complete: content.isComplete))
@@ -181,6 +249,20 @@ enum FoundationModelBridge {
     continuation.onTermination = { _ in producer.cancel() }
     return StreamHandle(stream: stream, producer: producer)
   }
+
+  #if compiler(>=6.4)
+  @available(iOS 27, *)
+  private static func makePrompt(_ prompt: LocalPrompt) -> Prompt {
+    guard let image = prompt.image else {
+      return Prompt(prompt.text)
+    }
+    return Prompt {
+      prompt.text
+      Attachment(imageURL: image.url)
+        .label(image.label)
+    }
+  }
+  #endif
 
   private static func finishedStream<Element>(
     throwing error: Error

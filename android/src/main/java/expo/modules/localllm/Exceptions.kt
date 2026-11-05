@@ -27,3 +27,6 @@ class ResponseFormatNotSupportedException :
 
 class ToolNotSupportedException :
   CodedException("ERR_TOOL_NOT_SUPPORTED", "Tool calling is not supported on Android yet", null)
+
+class ImageInvalidException(message: String, cause: Throwable? = null) :
+  CodedException("ERR_IMAGE_INVALID", message, cause)

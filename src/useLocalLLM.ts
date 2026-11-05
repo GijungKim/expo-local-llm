@@ -4,6 +4,7 @@ import type {
   DeepPartial,
   InferSchema,
   LocalLLMErrorCode,
+  LLMPrompt,
   ModelAvailability,
   Schema,
   SessionConfig,
@@ -47,8 +48,8 @@ type UseLocalLLMResult<Definition extends Schema> = {
   /** The code of `error`, or null when there is no error or it came from your own code. */
   errorCode: LocalLLMErrorCode | null;
   activeToolCalls: ActiveToolCall[];
-  respond?: (prompt: string) => Promise<string>;
-  streamResponse?: (prompt: string) => Promise<string>;
+  respond?: (prompt: LLMPrompt) => Promise<string>;
+  streamResponse?: (prompt: LLMPrompt) => Promise<string>;
   cancelStream?: () => Promise<void>;
   reset?: () => void;
   downloadModel?: () => Promise<void>;
@@ -388,7 +389,7 @@ export function useLocalLLM<const Definition extends Schema = Schema>(
   }, [session, isJSONMode]);
 
   const respond = useCallback(
-    async (prompt: string): Promise<string> => {
+    async (prompt: LLMPrompt): Promise<string> => {
       if (!session) {
         throw new LocalLLMError("ERR_SESSION_INVALID", "Session not available");
       }
@@ -442,7 +443,7 @@ export function useLocalLLM<const Definition extends Schema = Schema>(
   );
 
   const streamResponse = useCallback(
-    async (prompt: string): Promise<string> => {
+    async (prompt: LLMPrompt): Promise<string> => {
       if (!session) {
         throw new LocalLLMError("ERR_SESSION_INVALID", "Session not available");
       }

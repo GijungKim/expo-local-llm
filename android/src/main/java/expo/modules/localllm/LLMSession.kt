@@ -1,12 +1,16 @@
 package expo.modules.localllm
 
+import android.graphics.Bitmap
 import android.util.Log
 import com.google.mlkit.genai.common.DownloadStatus
 import com.google.mlkit.genai.common.FeatureStatus
+import com.google.mlkit.genai.common.GenAiException
 import com.google.mlkit.genai.prompt.GenerateContentRequest
 import com.google.mlkit.genai.prompt.Generation
 import com.google.mlkit.genai.prompt.GenerativeModel
+import com.google.mlkit.genai.prompt.ImagePart
 import com.google.mlkit.genai.prompt.TextPart
+import expo.modules.kotlin.exception.CodedException
 import expo.modules.kotlin.sharedobjects.SharedObject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -159,12 +163,23 @@ class LLMSession(
     generation.job
   }
 
-  private fun createRequest(prompt: String): GenerateContentRequest =
-    GenerateContentRequest.Builder(TextPart(prompt)).apply {
-      temperature = this@LLMSession.temperature
-      maxOutputTokens = this@LLMSession.maxTokens
-      topK = this@LLMSession.topK
-    }.build()
+  private suspend fun prepareRequest(prompt: LocalPrompt, fullText: String): PreparedRequest {
+    var bitmap: Bitmap? = null
+    try {
+      bitmap = prompt.image?.let { decodeRequestImage(it) }
+      val request = buildGenerateContentRequest(
+        prompt.textWithImageLabel(fullText),
+        bitmap,
+        temperature,
+        maxTokens,
+        topK
+      )
+      return PreparedRequest(request, bitmap)
+    } catch (error: Throwable) {
+      bitmap?.takeUnless(Bitmap::isRecycled)?.recycle()
+      throw error
+    }
+  }
 
   private fun getOrCreateModel(generation: ActiveGeneration): GenerativeModel =
     synchronized(stateLock) {
@@ -177,7 +192,7 @@ class LLMSession(
   private fun isCurrentLocked(generation: ActiveGeneration): Boolean =
     activeGeneration === generation && generation.acceptsOutput
 
-  suspend fun respond(prompt: String, requestId: String? = null): String {
+  internal suspend fun respond(prompt: LocalPrompt, requestId: String? = null): String {
     val generation = beginGeneration(GenerationKind.RESPOND, requestId)
     val completion = CompletableDeferred<String>()
     val job = scope.launch(start = CoroutineStart.LAZY) {
@@ -186,21 +201,30 @@ class LLMSession(
           if (!isCurrentLocked(generation)) {
             throw CancellationException("Generation was cancelled")
           }
-          history.buildPrompt(addingUserMessage = prompt)
+          history.buildPrompt(addingUserMessage = prompt.text)
         }
-        val response = getOrCreateModel(generation).generateContent(createRequest(fullPrompt))
-        val text = response.candidates.firstOrNull()?.text.orEmpty()
+        val prepared = prepareRequest(prompt, fullPrompt)
+        val text = try {
+          getOrCreateModel(generation)
+            .generateContent(prepared.handOffToSDK())
+            .candidates
+            .firstOrNull()
+            ?.text
+            .orEmpty()
+        } finally {
+          prepared.recycleIfUnsubmitted()
+        }
         synchronized(stateLock) {
           if (!isCurrentLocked(generation)) {
             throw CancellationException("Generation was cancelled")
           }
-          history.addExchange(prompt, text)
+          history.addExchange(prompt.text, text)
         }
         completion.complete(text)
       } catch (error: CancellationException) {
         completion.completeExceptionally(error)
       } catch (error: Exception) {
-        completion.completeExceptionally(generationException(error))
+        completion.completeExceptionally(mapImageRequestError(error, prompt))
       }
     }
     job.invokeOnCompletion { error ->
@@ -231,7 +255,7 @@ class LLMSession(
    * produced so far if the stream is cancelled. Emits `streamComplete` only
    * on natural completion, `streamError` on failure.
    */
-  suspend fun streamResponse(prompt: String, requestId: String? = null): String {
+  internal suspend fun streamResponse(prompt: LocalPrompt, requestId: String? = null): String {
     val generation = beginGeneration(GenerationKind.STREAM, requestId)
     val completion = CompletableDeferred<String>()
     val job = scope.launch(start = CoroutineStart.LAZY) {
@@ -241,26 +265,31 @@ class LLMSession(
           if (!isCurrentLocked(generation)) {
             throw CancellationException("Generation was cancelled")
           }
-          history.buildPrompt(addingUserMessage = prompt)
+          history.buildPrompt(addingUserMessage = prompt.text)
         }
-        getOrCreateModel(generation).generateContentStream(createRequest(fullPrompt)).collect { chunk ->
-          val token = chunk.candidates.firstOrNull()?.text.orEmpty()
-          synchronized(stateLock) {
-            if (!isCurrentLocked(generation)) {
-              throw CancellationException("Generation was cancelled")
+        val prepared = prepareRequest(prompt, fullPrompt)
+        try {
+          getOrCreateModel(generation).generateContentStream(prepared.handOffToSDK()).collect { chunk ->
+            val token = chunk.candidates.firstOrNull()?.text.orEmpty()
+            synchronized(stateLock) {
+              if (!isCurrentLocked(generation)) {
+                throw CancellationException("Generation was cancelled")
+              }
+              accumulated += token
+              emit("token", mapOf(
+                "token" to token,
+                "accumulated" to accumulated,
+                "requestId" to generation.requestId
+              ))
             }
-            accumulated += token
-            emit("token", mapOf(
-              "token" to token,
-              "accumulated" to accumulated,
-              "requestId" to generation.requestId
-            ))
           }
+        } finally {
+          prepared.recycleIfUnsubmitted()
         }
 
         synchronized(stateLock) {
           if (isCurrentLocked(generation)) {
-            history.addExchange(prompt, accumulated)
+            history.addExchange(prompt.text, accumulated)
             emit("streamComplete", mapOf(
               "text" to accumulated,
               "requestId" to generation.requestId
@@ -271,7 +300,7 @@ class LLMSession(
       } catch (error: CancellationException) {
         completion.complete(accumulated)
       } catch (error: Exception) {
-        val failure = generationException(error)
+        val failure = mapImageRequestError(error, prompt)
         synchronized(stateLock) {
           if (isCurrentLocked(generation)) {
             emit("streamError", mapOf(
@@ -375,4 +404,58 @@ class LLMSession(
     scope.cancel()
     super.sharedObjectDidRelease()
   }
+}
+
+private class PreparedRequest(
+  private val request: GenerateContentRequest,
+  bitmap: Bitmap?
+) {
+  private val image = RequestImage(bitmap)
+
+  fun handOffToSDK(): GenerateContentRequest {
+    image.handOffToSDK()
+    return request
+  }
+
+  fun recycleIfUnsubmitted() = image.recycleIfUnsubmitted()
+}
+
+internal fun buildGenerateContentRequest(
+  text: String,
+  bitmap: Bitmap?,
+  temperature: Float?,
+  maxTokens: Int?,
+  topK: Int?
+): GenerateContentRequest {
+  val textPart = TextPart(text)
+  val builder = if (bitmap == null) {
+    GenerateContentRequest.Builder(textPart)
+  } else {
+    // beta2 exposes exactly this multimodal constructor. Multipart Content,
+    // needed for multiple images, first appears in beta3 and requires a newer
+    // Kotlin toolchain than the library's supported Expo versions.
+    GenerateContentRequest.Builder(ImagePart(bitmap), textPart)
+  }
+  return builder.apply {
+    this.temperature = temperature
+    maxOutputTokens = maxTokens
+    this.topK = topK
+  }.build()
+}
+
+internal fun mapImageRequestError(error: Exception, prompt: LocalPrompt): CodedException {
+  if (error is CodedException) {
+    return error
+  }
+  if (
+    prompt.image != null &&
+    error is GenAiException &&
+    error.errorCode == GenAiException.ErrorCode.INVALID_INPUT_IMAGE
+  ) {
+    return ImageInvalidException(
+      "The on-device model rejected image \"${prompt.image.label}\"; try a smaller or different image",
+      error
+    )
+  }
+  return generationException(error)
 }

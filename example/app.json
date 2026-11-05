@@ -4,7 +4,6 @@
     "slug": "expo-local-llm-example",
     "version": "1.0.0",
     "orientation": "portrait",
-    "userInterfaceStyle": "light",
     "ios": {
       "bundleIdentifier": "com.example.expolocalllm"
     },
@@ -22,7 +21,11 @@
             "minSdkVersion": 26
           }
         }
-      ]
-    ]
+      ],
+      "expo-asset"
+    ],
+    "updates": {
+      "enabled": false
+    }
   }
 }

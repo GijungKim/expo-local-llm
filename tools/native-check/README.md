@@ -41,8 +41,10 @@ iOS Simulator destination, compiling and linking the Swift module against the
 Xcode 26 SDK.
 
 The Android JVM tests cover library logic that does not need the model runtime —
-prompt assembly and conversation trimming — because the generation path itself
-cannot run without an AICore-capable device. Gradle reports a task with no
+prompt assembly, conversation trimming, image input validation, bitmap decoding,
+and bitmap ownership when cancellation races decoding or a paused SDK worker.
+Image tests use Robolectric; they do not establish image understanding or
+inference behavior on an AICore-capable device. Gradle reports a task with no
 matching sources as `NO-SOURCE` and still passes, so the check asserts that test
 result files exist instead of trusting the task outcome.
 
