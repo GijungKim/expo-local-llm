@@ -9,11 +9,11 @@
 
 Use system-provided models in Expo apps: Apple Foundation Models on iOS 26+ and Gemini Nano on Android. Generate text, stream it into a component, extract typed objects and call tools, with no API key.
 
-The full JavaScript API measures approximately **14.6 kB minified / 4.9 kB gzipped**, excluding external dependencies and native code.[^js-size]
+The full JavaScript API measures approximately **17.7 kB minified / 6.0 kB gzipped**, excluding external dependencies and native code.[^js-size]
 
 Inference stays on the device, with no cloud fallback. Once the model is ready, generation works offline; initial model provisioning or downloads may require network access and device storage. Tool handlers you write may also access the network.
 
-[^js-size]: Measured from the built package entry point with Bun 1.4.4: a minified browser-target ESM bundle, all public exports retained, packages external, and default `node:zlib` gzip compression. Sizes use decimal kB. This standalone JS measurement excludes Expo, React, React Native, native SDKs (including Android ML Kit), and model assets; it is not a Metro/Hermes or installed-app size measurement. Reproduce with `bun run build && bun run check:size`. CI enforces budgets of 15,000 minified bytes and 5,000 gzip bytes.
+[^js-size]: Measured from the built package entry point with Bun 1.4.4: a minified browser-target ESM bundle, all public exports retained, packages external, and default `node:zlib` gzip compression. Sizes use decimal kB. This standalone JS measurement excludes Expo, React, React Native, native SDKs (including Android ML Kit), and model assets; it is not a Metro/Hermes or installed-app size measurement. Reproduce with `bun run build && bun run check:size`. CI enforces budgets of 18,000 minified bytes and 6,200 gzip bytes.
 
 ## At a glance
 
@@ -21,7 +21,8 @@ Inference stays on the device, with no cloud fallback. Once the model is ready, 
 |---|---|---|
 | Text generation and streaming | ✅ Verified on device | ⚠️ Experimental: builds and reports eligibility; generation not yet validated on Gemini Nano hardware |
 | Image prompts | iOS 27+, Xcode 27+, and a ready vision-capable system model | ⚠️ Experimental: up to eight local images per request; not yet validated on Gemini Nano hardware |
-| Structured output (typed, schema-constrained) | ✅ Constrained decoding, validated in JS | ❌ Rejected explicitly |
+| Native structured output (schema-constrained) | ✅ Constrained decoding, validated in JS | ❌ Rejected explicitly |
+| Explicit validated output (one-shot) | Text generation + JS schema validation; device check pending | ⚠️ Experimental text generation + JS schema validation; device check pending |
 | Tool calling (validated primitive arguments) | ✅ Schema-constrained | Experimental; selected model must advertise function calling |
 | Stable error codes | ✅ | ✅ |
 | Model download | Managed by the OS | `downloadModel()` with progress |
@@ -205,7 +206,7 @@ The example app’s **Image** tab bundles a known image and streams a descriptio
 
 ### Extract typed data (iOS)
 
-`generateObject()` infers the result type from the schema, constrains the model's decoding to it, and validates the JSON before returning it:
+`generateObject()` defaults to native constrained output: it infers the result type from the schema, constrains the model's decoding to it, and validates the JSON before returning it:
 
 ```ts
 import { generateObject, getCapabilities } from 'expo-local-llm';
@@ -221,13 +222,41 @@ if (getCapabilities().structuredOutputMode === 'constrained') {
 }
 ```
 
-A supported capability does not mean the model is ready, so handle rejected calls. A mismatch rejects with `StructuredOutputValidationError`; output is never repaired silently.
+A supported capability does not mean the model is ready, so handle rejected calls. A mismatch in this default mode rejects with `StructuredOutputValidationError`; it never falls back to text generation or repair.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/GijungKim/expo-local-llm/main/docs/structured-output.png" alt="Structured output demo — recipe JSON with constrained 'difficulty' enum on iPhone" width="320" />
 </p>
 
 *Real device output: the model fills in a recipe schema with `difficulty` constrained to `easy | medium | hard`. The streaming demo lives at `example/App.tsx`.*
+
+### Extract validated data (Android and iOS)
+
+Request `mode: 'validated'` explicitly to generate ordinary text and validate the complete JSON against a runtime TypeScript schema. This does **not** constrain decoding. Check `getCapabilities().text` for integration support and `getModelReadiness()` for the selected model's readiness. The existing `structuredOutput` and `structuredOutputMode` capabilities continue to describe native constrained output only.
+
+```ts
+import { generateObject, getCapabilities } from 'expo-local-llm';
+
+const controller = new AbortController();
+if (getCapabilities().text) {
+  const result = await generateObject('Classify: "Can we meet on Friday?"', {
+    mode: 'validated',
+    repairAttempts: 1, // default; choose 0 to disable repair
+    signal: controller.signal,
+    androidModel: 'default',
+    schema: {
+      intent: { type: 'string', enum: ['scheduling', 'question', 'other'] },
+      dates: { type: 'array', items: { type: 'string' } },
+    },
+  });
+  // result.intent: 'scheduling' | 'question' | 'other'; result.dates: string[]
+}
+// Call controller.abort() from your cancel action while the call is pending.
+```
+
+Only JSON parse or schema failures permit one additional request. Each attempt uses a fresh session with the original task, schema, instructions, generation options, selected model, and image attachment records. Native errors, refusals, guardrails, cancellation, context limits, and availability failures propagate without repair. Exhausted or disabled repair rejects with `StructuredOutputValidationError`; the helper never extracts JSON from prose, coerces values, inserts fields, or removes extra fields. Validation checks structure, not factual correctness. Both platforms still need device testing of this explicit mode; Android remains experimental.
+
+This mode is available only in one-shot `generateObject()`. It does not change sessions, hooks, JSON streaming, or Android's rejection of native `responseFormat: 'json'`.
 
 ### Structured output in the hook
 
@@ -456,7 +485,11 @@ Use `useLocalLLM()` for automatic tool dispatch. Low-level `createLLMSession()` 
 
 One-shot structured generation with a required `schema`. Returns an object whose type is inferred from the schema, after validating every required field, primitive type, enum, array item, and nested object. Unexpected properties are rejected. Use inline schema literals or `as const satisfies Schema` to preserve enum literal types.
 
-This helper requires constrained structured output support (currently iOS 26+). It releases its session on success and failure. Generation errors and model refusals still reject the call; schema validation establishes structure, not factual accuracy.
+`mode` is `'constrained' | 'validated'`; omitted means `'constrained'` (currently iOS 26+), including the existing Android rejection. Explicit `'validated'` uses the text integration on iOS or Android. No automatic fallback connects the modes. Tools are rejected before session creation, including runtime JS configurations.
+
+Validated mode accepts `repairAttempts?: 0 | 1` (default `1`) and `signal?: AbortSignal`. Other retry counts and validated-only options in constrained mode reject with `ERR_UNSUPPORTED_REQUEST`. An abort rejects with an `Error` whose `name` is `'AbortError'` (no new native error code); already-aborted calls do no native work. Every owned session is released on completion, failure, or abort, with late native settlements observed and abort listeners removed.
+
+Validated mode snapshots schema fields, enums, task text, options, and image records before awaiting generation. It preserves local URI references without copying files or downloading images. Schema definitions are limited to 16 field levels and 16,384 serialized JavaScript string characters; malformed, cyclic, or unserializable schemas reject with `ERR_SCHEMA_INVALID`. Each request, including instructions and serialized image records, and each returned response is limited to 65,536 JavaScript string characters (UTF-16 code units). Repair context includes the original request, prior output, and validation errors within that same request limit. Oversize input/output/context rejects with `ERR_UNSUPPORTED_REQUEST`, without truncation or repair. These checks do not bound SDK allocation before a response returns; the model's own context and `maxTokens` limits still apply.
 
 `validateStructuredOutput(value, schema)` is also available for checking an already-parsed value against a valid schema. It returns `{ ok: true }` or `{ ok: false, errors }` with field paths.
 
@@ -531,7 +564,7 @@ Android readiness is checked asynchronously and may initially be `unknown`. Pref
 - **Context window.** Neither platform trims history to fit the model's context; Android only caps it at 10 exchanges. iOS rejects with `ERR_CONTEXT_WINDOW_EXCEEDED`; call `reset()` or start a new session.
 - **One generation per session.** Overlapping requests reject with `ERR_SESSION_BUSY`. After cancelling, await the original promise before starting another request. Use separate sessions for independent conversations; events belong to their session.
 - **Guardrails.** Apple's model refuses some categories of prompt, such as interpreting personal health data. A refusal arrives as `ERR_GUARDRAIL_VIOLATION` or `ERR_REFUSAL`.
-- **Android is experimental.** The Gemini Nano SDK is in beta and its API may change. Tools require selected-model feature support. `responseFormat: 'json'` and `generateObject()` remain unsupported: the SDK only accepts compiled Kotlin types for constrained output, with no public runtime-schema entrypoint for arbitrary JS schemas. Tools do not emulate structured output.
+- **Android is experimental.** The Gemini Nano SDK is in beta and its API may change. Tools require selected-model feature support. Native `responseFormat: 'json'` and default/constrained `generateObject()` remain unsupported: the SDK only accepts compiled Kotlin types for constrained output, with no public runtime-schema entrypoint for arbitrary JS schemas. Explicit `generateObject(..., { mode: 'validated', schema })` uses text generation plus JS validation and bounded repair; it does not use native constrained decoding or tools.
 - **Readiness gates generation.** `respond` and `streamResponse` need a session and `availability === 'available'`; cancelling and resetting work whenever a session exists.
 
 ## How this library is verified
