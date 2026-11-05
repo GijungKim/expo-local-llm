@@ -20,10 +20,12 @@
     "clean": "expo-module clean",
     "lint": "eslint src && oxlint .",
     "lint:anti-slop": "oxlint .",
+    "lint:typed": "OXLINT_TSGOLINT_PATH=./node_modules/.bin/tsrs-lint oxlint --type-aware --config .oxlintrc.typed.json src",
     "knip": "knip --no-config-hints",
     "test": "expo-module test",
     "test:build-script": "node --test tools/build.test.mjs",
     "test:anti-slop": "node --test tools/oxlint/anti-slop/anti-slop.cases.ts",
+    "test:typed-lint": "node --test tools/lint-typed.test.mjs",
     "typecheck": "tsrs --project tsconfig.json --noEmit",
     "test:types": "tsrs --project tsconfig.typecheck.json --noEmit",
     "prepare": "chmod +x node_modules/expo-module-scripts/bin/expo-module-* 2>/dev/null || true",
@@ -67,7 +69,7 @@
     "react": "19.3.0",
     "react-native": "0.88.0",
     "react-test-renderer": "19.3.0",
-    "tsrs": "0.18.0-ts7.1.0-dev.20260929",
+    "tsrs": "0.21.0-ts7.1.0-beta",
     "typescript": "6.0.3"
   },
   "jest": {

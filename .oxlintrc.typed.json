@@ -1,0 +1,9 @@
+{
+  "extends": ["./.oxlintrc.json"],
+  "plugins": ["typescript"],
+  "ignorePatterns": ["src/__tests__/**"],
+  "rules": {
+    "typescript/no-floating-promises": "error",
+    "typescript/no-misused-promises": "error"
+  }
+}
