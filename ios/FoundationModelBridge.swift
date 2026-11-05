@@ -104,7 +104,7 @@ enum FoundationModelBridge {
       throw SessionInvalidException()
     }
     let response: LanguageModelSession.Response<String>
-    if prompt.image == nil {
+    if prompt.images.isEmpty {
       response = try await session.respond(to: prompt.text, options: options)
     } else {
       #if compiler(>=6.4)
@@ -130,7 +130,7 @@ enum FoundationModelBridge {
       throw SessionInvalidException()
     }
     let response: LanguageModelSession.Response<GeneratedContent>
-    if prompt.image == nil {
+    if prompt.images.isEmpty {
       response = try await session.respond(
         to: prompt.text,
         schema: schema,
@@ -168,7 +168,7 @@ enum FoundationModelBridge {
     let producer = Task {
       do {
         let responseStream: LanguageModelSession.ResponseStream<String>
-        if prompt.image == nil {
+        if prompt.images.isEmpty {
           responseStream = session.streamResponse(to: prompt.text, options: options)
         } else {
           #if compiler(>=6.4)
@@ -215,7 +215,7 @@ enum FoundationModelBridge {
     let producer = Task {
       do {
         let responseStream: LanguageModelSession.ResponseStream<GeneratedContent>
-        if prompt.image == nil {
+        if prompt.images.isEmpty {
           responseStream = session.streamResponse(
             to: prompt.text,
             schema: schema,
@@ -253,13 +253,15 @@ enum FoundationModelBridge {
   #if compiler(>=6.4)
   @available(iOS 27, *)
   private static func makePrompt(_ prompt: LocalPrompt) -> Prompt {
-    guard let image = prompt.image else {
+    guard !prompt.images.isEmpty else {
       return Prompt(prompt.text)
     }
     return Prompt {
       prompt.text
-      Attachment(imageURL: image.url)
-        .label(image.label)
+      for image in prompt.images {
+        Attachment(imageURL: image.url)
+          .label(image.label)
+      }
     }
   }
   #endif

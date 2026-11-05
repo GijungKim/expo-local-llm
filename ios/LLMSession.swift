@@ -423,7 +423,7 @@ class LLMSession: SharedObject {
     guard #available(iOS 26, *) else {
       throw NotSupportedException()
     }
-    guard prompt.image == nil || FoundationModelBridge.supportsImages() else {
+    guard prompt.images.isEmpty || FoundationModelBridge.supportsImages() else {
       throw ImageNotSupportedException()
     }
     let context = try beginGeneration(kind: .respond, requestId: requestId)
@@ -477,7 +477,7 @@ class LLMSession: SharedObject {
     guard #available(iOS 26, *) else {
       throw NotSupportedException()
     }
-    guard prompt.image == nil || FoundationModelBridge.supportsImages() else {
+    guard prompt.images.isEmpty || FoundationModelBridge.supportsImages() else {
       throw ImageNotSupportedException()
     }
     let context = try beginGeneration(kind: .stream, requestId: requestId)

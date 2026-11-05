@@ -11,11 +11,20 @@ internal data class LocalImage(
 
 internal data class LocalPrompt(
   val text: String,
-  val image: LocalImage? = null
+  val images: List<LocalImage> = emptyList()
 ) {
-  fun textWithImageLabel(fullText: String): String =
-    image?.let { "$fullText\n\nImage \"${ConversationHistory.neutralise(it.label)}\":" } ?: fullText
+  fun imageSections(): List<ImagePromptSection> = images.map { image ->
+    ImagePromptSection(
+      labelText = "Image \"${ConversationHistory.neutralise(image.label)}\":",
+      image = image
+    )
+  }
 }
+
+internal data class ImagePromptSection(
+  val labelText: String,
+  val image: LocalImage
+)
 
 internal fun Either<String, PromptRecord>.toLocalPrompt(): LocalPrompt =
   if (`is`(String::class)) {
@@ -26,17 +35,23 @@ internal fun Either<String, PromptRecord>.toLocalPrompt(): LocalPrompt =
 
 internal fun PromptRecord.toLocalPrompt(): LocalPrompt {
   val inputs = images.orEmpty()
-  if (inputs.size > 1) {
+  if (inputs.size > 8) {
     throw ImageInvalidException(
-      "This Android version accepts one image per request; send additional images in separate requests"
+      "This version accepts up to eight images per request"
     )
   }
-  val input = inputs.singleOrNull() ?: return LocalPrompt(text)
-  val label = input.label
-  if (label.isBlank() || label.length > 128 || label.any(Char::isISOControl)) {
-    throw ImageInvalidException("Image labels must contain 1–128 characters without control characters")
+  val labels = mutableSetOf<String>()
+  val localImages = inputs.map { input ->
+    val label = input.label
+    if (label.isBlank() || label.length > 128 || label.any(Char::isISOControl)) {
+      throw ImageInvalidException("Image labels must contain 1–128 characters without control characters")
+    }
+    if (!labels.add(label)) {
+      throw ImageInvalidException("Image labels must be unique within a request")
+    }
+    LocalImage(input.uri, label, localFilePath(input.uri, label))
   }
-  return LocalPrompt(text, LocalImage(input.uri, label, localFilePath(input.uri, label)))
+  return LocalPrompt(text, localImages)
 }
 
 private fun localFilePath(uriString: String, label: String): String {

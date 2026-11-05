@@ -17,28 +17,30 @@ struct PromptRecord: Record {
       return LocalPrompt(text: text)
     }
     let request = try prompt.as(PromptRecord.self)
-    guard request.images.count <= 1 else {
+    guard request.images.count <= 8 else {
       throw ImageInvalidException(
-        "This version accepts one image per request; send additional images in separate requests"
+        "This version accepts up to eight images per request"
       )
     }
-    guard let input = request.images.first else {
-      return LocalPrompt(text: request.text)
+    var labels = Set<String>()
+    var images: [LocalImage] = []
+    for input in request.images {
+      guard labels.insert(input.label).inserted else {
+        throw ImageInvalidException("Image labels must be unique within a request")
+      }
+      images.append(try LocalImage(input: input))
     }
-    return LocalPrompt(
-      text: request.text,
-      image: try LocalImage(input: input)
-    )
+    return LocalPrompt(text: request.text, images: images)
   }
 }
 
 struct LocalPrompt: Sendable {
   let text: String
-  let image: LocalImage?
+  let images: [LocalImage]
 
-  init(text: String, image: LocalImage? = nil) {
+  init(text: String, images: [LocalImage] = []) {
     self.text = text
-    self.image = image
+    self.images = images
   }
 }
 

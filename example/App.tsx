@@ -23,9 +23,14 @@ const recipeSchema: Schema = {
 };
 
 const imageSample = require('./assets/image-sample.png');
+const imageSamples = [
+  { source: imageSample, label: 'first' },
+  { source: require('./assets/image-sample-2.png'), label: 'second' },
+];
 const imageQuestion = 'Describe the shapes and their colors, from left to right.';
+const comparisonQuestion = 'Compare the two images. Describe the shapes and colors in the first image, then the second.';
 
-type Mode = 'chat' | 'json' | 'image';
+type Mode = 'chat' | 'json' | 'image' | 'images';
 
 export default function App() {
   const { width } = useWindowDimensions();
@@ -34,6 +39,10 @@ export default function App() {
   const [messages, setMessages] = useState<{ role: 'user' | 'assistant'; text: string }[]>([]);
   const [isPreparingImage, setIsPreparingImage] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
+  const usesImages = mode === 'image' || mode === 'images';
+  const samples = mode === 'images' ? imageSamples : imageSamples.slice(0, 1);
+  const question = mode === 'images' ? comparisonQuestion : imageQuestion;
+  const imageWidth = mode === 'images' ? (width - 44) / 2 : width - 32;
 
   const {
     availability,
@@ -54,7 +63,9 @@ export default function App() {
           schema: recipeSchema,
         }
       : {
-          instructions: mode === 'image'
+          instructions: mode === 'images'
+            ? 'Compare only the images attached to this request. Keep the answer to two sentences.'
+            : mode === 'image'
             ? 'Describe only what you can see in the attached image. Keep the answer to two sentences.'
             : 'You are a helpful health assistant. Keep responses concise.',
         }
@@ -77,13 +88,16 @@ export default function App() {
     setIsPreparingImage(true);
     setImageError(null);
     try {
-      const asset = Asset.fromModule(imageSample);
-      await asset.downloadAsync();
-      if (!asset.localUri) throw new Error('The sample image is not available locally.');
+      const images = await Promise.all(samples.map(async (sample) => {
+        const asset = Asset.fromModule(sample.source);
+        await asset.downloadAsync();
+        if (!asset.localUri) throw new Error('The sample image is not available locally.');
+        return { uri: asset.localUri, label: sample.label };
+      }));
       setIsPreparingImage(false);
       await streamResponse({
-        text: imageQuestion,
-        images: [{ uri: asset.localUri, label: 'sample' }],
+        text: question,
+        images,
       });
     } catch (failure) {
       setImageError(failure instanceof Error ? failure.message : String(failure));
@@ -143,18 +157,32 @@ export default function App() {
           >
             <Text style={[styles.tabText, mode === 'image' && styles.tabTextActive]}>Image</Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, mode === 'images' && styles.tabActive]}
+            onPress={() => setMode('images')}
+            disabled={isGenerating || isPreparingImage}
+          >
+            <Text style={[styles.tabText, mode === 'images' && styles.tabTextActive]}>Images</Text>
+          </TouchableOpacity>
         </View>
       </View>
 
-      {mode === 'image' ? (
+      {usesImages ? (
         <ScrollView style={styles.messages} contentContainerStyle={styles.imageContent}>
-          <Image
-            source={imageSample}
-            style={[styles.sampleImage, { width: width - 32, height: (width - 32) * 340 / 600 }]}
-            resizeMode="contain"
-            accessibilityLabel="Image sent to the local model"
-          />
-          <Text style={styles.imageQuestion}>{imageQuestion}</Text>
+          <View style={styles.imageRow}>
+            {samples.map((sample) => (
+              <View key={sample.label}>
+                <Text style={styles.imageLabel}>{sample.label}</Text>
+                <Image
+                  source={sample.source}
+                  style={[styles.sampleImage, { width: imageWidth, height: imageWidth * 340 / 600 }]}
+                  resizeMode="contain"
+                  accessibilityLabel={`${sample.label} image sent to the local model`}
+                />
+              </View>
+            ))}
+          </View>
+          <Text style={styles.imageQuestion}>{question}</Text>
           {imageError && <Text style={styles.error}>{imageError}</Text>}
           {streamedText ? <Text style={styles.imageAnswer}>{streamedText}</Text> : null}
           {(isGenerating || isPreparingImage) && !streamedText ? <ActivityIndicator /> : null}
@@ -189,7 +217,7 @@ export default function App() {
       )}
 
       <View style={styles.inputRow}>
-        {mode !== 'image' && <TextInput
+        {!usesImages && <TextInput
           style={styles.input}
           value={input}
           onChangeText={setInput}
@@ -200,13 +228,13 @@ export default function App() {
           <TouchableOpacity style={styles.sendBtn} onPress={cancelStream}>
             <Text style={styles.sendBtnText}>Stop</Text>
           </TouchableOpacity>
-        ) : mode === 'image' ? (
+        ) : usesImages ? (
           <TouchableOpacity
             style={[styles.sendBtn, styles.imageButton]}
             onPress={handleDescribeImage}
             disabled={isPreparingImage || !streamResponse || availability !== 'available'}
           >
-            <Text style={styles.sendBtnText}>Describe image</Text>
+            <Text style={styles.sendBtnText}>{mode === 'images' ? 'Compare images' : 'Describe image'}</Text>
           </TouchableOpacity>
         ) : (
           <TouchableOpacity style={styles.sendBtn} onPress={handleSend} disabled={!input.trim() || !streamResponse}>
@@ -235,6 +263,8 @@ const styles = StyleSheet.create({
   messagesContent: { padding: 16, gap: 8 },
   jsonContent: { padding: 16 },
   imageContent: { padding: 16, gap: 16 },
+  imageRow: { flexDirection: 'row', gap: 12 },
+  imageLabel: { fontSize: 13, color: '#666', marginBottom: 8 },
   sampleImage: { backgroundColor: '#fff', borderRadius: 12 },
   imageQuestion: { fontSize: 15, color: '#666', lineHeight: 22 },
   imageAnswer: { fontSize: 17, color: '#1c1c1e', lineHeight: 25, backgroundColor: '#fff', padding: 16, borderRadius: 12 },
