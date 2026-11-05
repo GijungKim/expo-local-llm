@@ -54,15 +54,17 @@
     },
     {
       "matchPackageNames": [
-        "tsrs"
+        "tsrs",
+        "oxlint",
+        "@oxlint/plugins"
       ],
-      "groupName": "type checker",
+      "groupName": "compiler and typed lint tooling",
       "rangeStrategy": "pin",
       "ignoreUnstable": false,
       "respectLatest": false,
       "automerge": false,
       "minimumReleaseAge": "7 days",
-      "description": "Keep experimental tsrs updates isolated for compatibility review"
+      "description": "Review the experimental compiler, typed lint backend, and Oxlint plugins together; preserve Promise and anti-slop enforcement when upgrading"
     }
   ]
 }

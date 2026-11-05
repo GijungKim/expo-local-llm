@@ -41,6 +41,12 @@ jobs:
       - name: Test anti-slop rules
         run: bun run test:anti-slop
 
+      - name: Type-aware lint
+        run: bun run lint:typed
+
+      - name: Verify typed lint enforcement
+        run: bun run test:typed-lint
+
       - name: Check dependencies
         run: bun run knip
 

@@ -28,6 +28,8 @@ If you are unsure if a PR would be accepted, open an issue first or look for iss
   bun install --frozen-lockfile
   bun run lint
   bun run test:anti-slop
+  bun run lint:typed
+  bun run test:typed-lint
   bun run test:build-script
   bun run knip
   bun run test -- --runInBand
@@ -39,11 +41,14 @@ If you are unsure if a PR would be accepted, open an issue first or look for iss
 
 - `check:size` uses Bun 1.4.4, matching CI, to measure all exports from the built package entry point with external packages excluded. Keep the README's measurement and footnote current when changing the JS size budgets or measurement tooling. This measures standalone JavaScript, not native app overhead.
 
-- Type checks and the default build use the experimental `tsrs` compiler pinned at `0.18.0-ts7.1.0-dev.20260929`. On macOS arm64 and Linux x64/arm64, builds emit JavaScript, declarations, and source maps with `tsrs`; `prepublishOnly` runs Expo's clean command and then the same build noninteractively.
+- Type checks and the default build use the experimental `tsrs` compiler pinned at `0.21.0-ts7.1.0-beta`. On macOS arm64 and Linux x64/arm64, builds emit JavaScript, declarations, and source maps with `tsrs`; `prepublishOnly` runs Expo's clean command and then the same build noninteractively.
 - Intel Mac, Windows, and other unsupported hosts select Expo's existing TypeScript 6.0.3 build before compilation and print a fallback diagnostic. Named `plugin`, `cli`, `utils`, and `scripts` build targets also remain delegated to Expo. A `tsrs` compilation failure never retries with TypeScript, so compiler errors cannot silently publish different output.
 - `bun run expo-module build` remains available to invoke the legacy emitter explicitly for comparison or troubleshooting.
 - Updating the `tsrs` pin requires review and an output comparison against TypeScript 6.0.3 covering every emitted JavaScript file, declaration, and source map. Source-map review must check usable navigation as well as valid coordinates and source content.
-- The pinned `tsrs` package provides prebuilt binaries for macOS arm64 and Linux x64/arm64, but not Intel Mac or Windows. On an unsupported development host, run `bunx tsc --project tsconfig.json --noEmit` and `bunx tsc --project tsconfig.typecheck.json --noEmit` as manual type-check fallbacks; CI remains authoritative.
+- `tsconfig.typecheck.json` checks non-emitting inference fixtures without declaration generation. The main build still generates and checks the package's public declarations; test helper return types are not package exports.
+- The pinned `tsrs` package also provides Intel Mac and Windows x64 binaries. The build wrapper retains its validated macOS arm64/Linux emission scope; use `bunx tsc --project tsconfig.json --noEmit` and `bunx tsc --project tsconfig.typecheck.json --noEmit` as manual type-check fallbacks on other hosts. CI remains authoritative.
+
+- `lint:typed` runs the compiler package's `tsrs-lint` launcher as Oxlint's type-aware backend for runtime source. It adds `no-floating-promises` and `no-misused-promises` while inheriting the anti-slop rules; test source stays in the existing lint/type-test gates. `test:typed-lint` invokes that same command against temporary valid and invalid source files and removes them afterward. Run source scans after this test finishes, so they cannot pick up its temporary fixture. The compiler, Oxlint, and plugin utilities move as one reviewed Renovate group.
 
 - Core pieces:
   - `src/` — TypeScript module (types, hook, SharedObject bridge)
