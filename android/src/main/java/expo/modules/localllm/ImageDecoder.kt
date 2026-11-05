@@ -14,6 +14,23 @@ import kotlin.coroutines.CoroutineContext
 
 private const val MAX_IMAGE_EDGE = 2048
 
+internal class RequestImage(private val bitmap: Bitmap?) {
+  private var submitted = false
+
+  fun handOffToSDK() {
+    submitted = true
+  }
+
+  fun recycleIfUnsubmitted() {
+    // Cancelling the SDK's coroutine await does not join its bitmap-preparation
+    // worker. Once submitted, let GC reclaim the bitmap after all SDK references
+    // are gone, even when our coroutine has already returned from cancellation.
+    if (!submitted && bitmap != null && !bitmap.isRecycled) {
+      bitmap.recycle()
+    }
+  }
+}
+
 internal suspend fun decodeRequestImage(
   image: LocalImage,
   dispatcher: CoroutineDispatcher = Dispatchers.IO,

@@ -4,9 +4,11 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.ExifInterface
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -197,6 +199,59 @@ class ImagePromptTest {
       callerDispatcher.runAll()
       if (!bitmap.isRecycled) bitmap.recycle()
     }
+  }
+
+  @Test
+  fun `cancelling the SDK await leaves its paused bitmap worker safe`() = runBlocking {
+    val bitmap = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
+    val color = android.graphics.Color.RED
+    bitmap.setPixel(0, 0, color)
+    val image = RequestImage(bitmap)
+    val handedOff = CompletableDeferred<Bitmap>()
+    val acquired = CompletableDeferred<Unit>()
+    val resumePreparation = CompletableDeferred<Unit>()
+    val sdkResult = CompletableDeferred<Int>()
+    // Like ML Kit's executor, this worker is independent of the coroutine
+    // awaiting its result. It retains the bitmap after cancel. This tests our
+    // ownership boundary without requiring the ML Kit worker on a JVM.
+    val sdkWorker = launch {
+      val sdkBitmap = handedOff.await()
+      acquired.complete(Unit)
+      resumePreparation.await()
+      sdkResult.complete(sdkBitmap.getPixel(0, 0))
+    }
+    val request = launch {
+      try {
+        image.handOffToSDK()
+        handedOff.complete(bitmap)
+        sdkResult.await()
+      } finally {
+        image.recycleIfUnsubmitted()
+      }
+    }
+
+    try {
+      acquired.await()
+      request.cancelAndJoin()
+      assertFalse(bitmap.isRecycled)
+      resumePreparation.complete(Unit)
+      assertEquals(color, sdkResult.await())
+      sdkWorker.join()
+    } finally {
+      request.cancelAndJoin()
+      sdkWorker.cancelAndJoin()
+      if (!bitmap.isRecycled) bitmap.recycle()
+    }
+  }
+
+  @Test
+  fun `an image never submitted to the SDK is recycled`() {
+    val bitmap = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
+    val image = RequestImage(bitmap)
+
+    image.recycleIfUnsubmitted()
+
+    assertTrue(bitmap.isRecycled)
   }
 
   @Test

@@ -73,7 +73,10 @@ export function getCapabilities(): LocalLLMCapabilities {
     }
   } else if (!isIOS && available) {
     try {
-      if (ExpoLocalLlmModule?.getAvailability() === "available") {
+      if (
+        ExpoLocalLlmModule?.getImagePromptVersion?.() === 1 &&
+        ExpoLocalLlmModule.getAvailability() === "available"
+      ) {
         images = "unknown";
       }
     } catch {

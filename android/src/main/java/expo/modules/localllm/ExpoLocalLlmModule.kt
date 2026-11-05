@@ -22,6 +22,8 @@ class ExpoLocalLlmModule : Module() {
 
     Events("downloadProgress", "availabilityChange")
 
+    Function("getImagePromptVersion") { 1 }
+
     Function("getAvailability") {
       val cached = LLMSession.getCachedAvailability()
       // ML Kit's status API is suspend-only. Preserve the synchronous JS API

@@ -244,8 +244,9 @@ export type LocalLLMCapabilities = {
   /**
    * iOS reports `supported` when built with Xcode 27+, running on iOS 27+,
    * and the ready system model advertises vision support.
-   * Android reports `unknown` when its last cached model availability is
-   * `available`; otherwise `unsupported`. The initial cache is `unknown`, so
+   * Android reports `unknown` when the native bridge implements image prompts
+   * and its last cached model availability is `available`; otherwise `unsupported`.
+   * Older native binaries report `unsupported`. The initial cache is `unknown`, so
    * this starts as `unsupported` until availability has been refreshed.
    * ML Kit cannot query whether the installed device model accepts images.
    */

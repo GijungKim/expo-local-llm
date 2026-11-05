@@ -163,17 +163,6 @@ class LLMSession(
     generation.job
   }
 
-  private class PreparedRequest(
-    val request: GenerateContentRequest,
-    private val bitmap: Bitmap?
-  ) {
-    fun recycleImage() {
-      if (bitmap != null && !bitmap.isRecycled) {
-        bitmap.recycle()
-      }
-    }
-  }
-
   private suspend fun prepareRequest(prompt: LocalPrompt, fullText: String): PreparedRequest {
     var bitmap: Bitmap? = null
     try {
@@ -217,15 +206,13 @@ class LLMSession(
         val prepared = prepareRequest(prompt, fullPrompt)
         val text = try {
           getOrCreateModel(generation)
-            .generateContent(prepared.request)
+            .generateContent(prepared.handOffToSDK())
             .candidates
             .firstOrNull()
             ?.text
             .orEmpty()
         } finally {
-          // Recycle only after the SDK call has returned or completed its
-          // cancellation; ImagePart may retain the bitmap while inference runs.
-          prepared.recycleImage()
+          prepared.recycleIfUnsubmitted()
         }
         synchronized(stateLock) {
           if (!isCurrentLocked(generation)) {
@@ -282,7 +269,7 @@ class LLMSession(
         }
         val prepared = prepareRequest(prompt, fullPrompt)
         try {
-          getOrCreateModel(generation).generateContentStream(prepared.request).collect { chunk ->
+          getOrCreateModel(generation).generateContentStream(prepared.handOffToSDK()).collect { chunk ->
             val token = chunk.candidates.firstOrNull()?.text.orEmpty()
             synchronized(stateLock) {
               if (!isCurrentLocked(generation)) {
@@ -297,7 +284,7 @@ class LLMSession(
             }
           }
         } finally {
-          prepared.recycleImage()
+          prepared.recycleIfUnsubmitted()
         }
 
         synchronized(stateLock) {
@@ -417,6 +404,20 @@ class LLMSession(
     scope.cancel()
     super.sharedObjectDidRelease()
   }
+}
+
+private class PreparedRequest(
+  private val request: GenerateContentRequest,
+  bitmap: Bitmap?
+) {
+  private val image = RequestImage(bitmap)
+
+  fun handOffToSDK(): GenerateContentRequest {
+    image.handOffToSDK()
+    return request
+  }
+
+  fun recycleIfUnsubmitted() = image.recycleIfUnsubmitted()
 }
 
 internal fun buildGenerateContentRequest(

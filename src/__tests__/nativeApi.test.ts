@@ -28,6 +28,7 @@ jest.mock("expo-modules-core", () => {
   const nativeModule = {
     getAvailability: jest.fn(() => "available"),
     supportsImages: jest.fn(() => false),
+    getImagePromptVersion: jest.fn(() => 1),
     downloadModel: jest.fn(),
     addListener: jest.fn(() => ({ remove: jest.fn() })),
     LLMSession: MockNativeSession,
@@ -54,6 +55,7 @@ describe("native-present API", () => {
     jest.clearAllMocks();
     mockNativeModule.getAvailability.mockReturnValue("available");
     mockNativeModule.supportsImages.mockReturnValue(false);
+    mockNativeModule.getImagePromptVersion.mockReturnValue(1);
     mockPlatform.OS = "ios";
     mockPlatform.Version = 26;
   });
@@ -117,6 +119,18 @@ describe("native-present API", () => {
       structuredOutputMode: "unsupported",
       experimental: false,
     });
+  });
+
+  it("reports no image support for an older Android bridge without the image protocol", () => {
+    mockPlatform.OS = "android";
+    const marker = mockNativeModule.getImagePromptVersion;
+    delete mockNativeModule.getImagePromptVersion;
+    try {
+      expect(getCapabilities()).toMatchObject({ images: "unsupported" });
+      expect(mockNativeModule.getAvailability).not.toHaveBeenCalled();
+    } finally {
+      mockNativeModule.getImagePromptVersion = marker;
+    }
   });
 
   it("reports iOS image support only with a ready vision-capable native backend", () => {
