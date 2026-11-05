@@ -6,6 +6,9 @@ import expo.modules.kotlin.records.Required
 
 class SessionConfig : Record {
   @Field
+  var androidModel: String? = null
+
+  @Field
   var instructions: String? = null
 
   @Field

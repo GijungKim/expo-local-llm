@@ -3,11 +3,9 @@ package expo.modules.localllm
 import android.graphics.Bitmap
 import android.util.Log
 import com.google.mlkit.genai.common.DownloadStatus
-import com.google.mlkit.genai.common.FeatureStatus
 import com.google.mlkit.genai.common.GenAiException
 import com.google.mlkit.genai.prompt.Content
 import com.google.mlkit.genai.prompt.GenerateContentRequest
-import com.google.mlkit.genai.prompt.Generation
 import com.google.mlkit.genai.prompt.GenerativeModel
 import com.google.mlkit.genai.prompt.ImagePart
 import com.google.mlkit.genai.prompt.TextPart
@@ -27,52 +25,45 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import java.util.UUID
 
 class LLMSession(
   config: SessionConfig
 ) : SharedObject() {
-  private enum class GenerationKind { RESPOND, STREAM }
-
-  private class ActiveGeneration(
-    val kind: GenerationKind,
-    val requestId: String
-  ) {
-    var acceptsOutput = true
-    var job: Job? = null
-  }
-
   private val history = ConversationHistory(config.instructions)
+  private val androidModel = AndroidModel.parse(config.androidModel)
+  private var tools = NativeTool.declarations(config.tools.orEmpty())
+  private val toolTimeoutMillis = (config.toolTimeout ?: 30.0).let {
+    if (!it.isFinite() || it <= 0 || it > Long.MAX_VALUE / 1000.0) {
+      throw ToolInvalidException("toolTimeout must be a finite positive number of seconds")
+    }
+    (it * 1000).toLong().coerceAtLeast(1)
+  }
   private val temperature = config.options?.temperature
   private val maxTokens = config.options?.maxTokens
   private val topK = config.options?.topK
-  private val stateLock = Any()
+  private val lifecycle = GenerationLifecycle()
+  private val stateLock = lifecycle.lock
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
   private var model: GenerativeModel? = null
-  private var activeGeneration: ActiveGeneration? = null
+  private val activeGeneration get() = lifecycle.active
   private var modelResetPending = false
-  private var disposed = false
+  private val disposed get() = lifecycle.disposed
 
   companion object {
     private const val LOG_TAG = "ExpoLocalLlm"
 
     @Volatile
-    private var cachedAvailability = ModelAvailability.unknown
+    private var cachedAvailability = mapOf<AndroidModel, ModelAvailability>()
     private val availabilityMutex = Mutex()
 
-    fun getCachedAvailability(): ModelAvailability = cachedAvailability
+    internal fun getCachedAvailability(selection: AndroidModel): ModelAvailability =
+      cachedAvailability[selection] ?: ModelAvailability.unknown
 
-    suspend fun refreshAvailability(): ModelAvailability = availabilityMutex.withLock {
+    internal suspend fun refreshAvailability(selection: AndroidModel): ModelAvailability = availabilityMutex.withLock {
       var client: GenerativeModel? = null
       val availability = try {
-        val activeClient = Generation.getClient().also { client = it }
-        when (activeClient.checkStatus()) {
-          FeatureStatus.AVAILABLE -> ModelAvailability.available
-          FeatureStatus.DOWNLOADING -> ModelAvailability.downloading
-          FeatureStatus.DOWNLOADABLE -> ModelAvailability.downloadRequired
-          FeatureStatus.UNAVAILABLE -> ModelAvailability.notEligible
-          else -> ModelAvailability.unknown
-        }
+        val activeClient = selection.client().also { client = it }
+        modelAvailability(activeClient.checkStatus())
       } catch (e: CancellationException) {
         throw e
       } catch (e: Exception) {
@@ -83,16 +74,25 @@ class LLMSession(
         // Generation.getClient() creates an independent engine-backed client.
         client?.close()
       }
-      cachedAvailability = availability
+      cachedAvailability = cachedAvailability + (selection to availability)
       availability
     }
 
-    suspend fun downloadModel(onProgress: (Float) -> Unit) = availabilityMutex.withLock {
+    internal suspend fun readiness(selection: AndroidModel): Map<String, String> = availabilityMutex.withLock {
+      val client = selection.client()
+      try {
+        modelReadiness(client).also {
+          cachedAvailability = cachedAvailability + (selection to ModelAvailability.valueOf(it.getValue("availability")))
+        }
+      } finally { client.close() }
+    }
+
+    internal suspend fun downloadModel(selection: AndroidModel, onProgress: (Float) -> Unit) = availabilityMutex.withLock {
       var client: GenerativeModel? = null
       try {
-        val activeClient = Generation.getClient().also { client = it }
+        val activeClient = selection.client().also { client = it }
         onProgress(0f)
-        cachedAvailability = ModelAvailability.downloading
+        cachedAvailability = cachedAvailability + (selection to ModelAvailability.downloading)
         var bytesToDownload: Long? = null
         activeClient.download().collect { status ->
           when (status) {
@@ -120,30 +120,14 @@ class LLMSession(
     }
   }
 
-  private fun beginGeneration(kind: GenerationKind, requestId: String?): ActiveGeneration = synchronized(stateLock) {
-    if (disposed) {
-      throw SessionInvalidException()
-    }
-    if (activeGeneration != null) {
-      throw SessionBusyException()
-    }
-    ActiveGeneration(kind, requestId ?: UUID.randomUUID().toString()).also { activeGeneration = it }
-  }
+  private fun beginGeneration(kind: GenerationKind, requestId: String?) = lifecycle.begin(kind, requestId)
 
-  private fun attachJob(generation: ActiveGeneration, job: Job) {
-    val shouldCancel = synchronized(stateLock) {
-      generation.job = job
-      activeGeneration !== generation || !generation.acceptsOutput
-    }
-    if (shouldCancel) {
-      job.cancel()
-    }
-  }
+  private fun attachJob(generation: ActiveGeneration, job: Job) = lifecycle.attach(generation, job)
 
   private fun finishGeneration(generation: ActiveGeneration) {
     val oldModel = synchronized(stateLock) {
       if (activeGeneration === generation) {
-        activeGeneration = null
+        lifecycle.finish(generation)
         if (modelResetPending) {
           modelResetPending = false
           model.also { model = null }
@@ -157,12 +141,7 @@ class LLMSession(
     oldModel?.close()
   }
 
-  private fun invalidateGeneration(generation: ActiveGeneration): Job? = synchronized(stateLock) {
-    if (activeGeneration === generation) {
-      generation.acceptsOutput = false
-    }
-    generation.job
-  }
+  private fun invalidateGeneration(generation: ActiveGeneration) = lifecycle.invalidate(generation)
 
   private suspend fun prepareRequest(prompt: LocalPrompt, fullText: String): PreparedRequest {
     var bitmaps = emptyList<Bitmap>()
@@ -191,39 +170,49 @@ class LLMSession(
       if (!isCurrentLocked(generation)) {
         throw CancellationException("Generation was cancelled")
       }
-      model ?: Generation.getClient().also { model = it }
+      model ?: androidModel.client().also { model = it }
     }
 
   private fun isCurrentLocked(generation: ActiveGeneration): Boolean =
-    activeGeneration === generation && generation.acceptsOutput
+    lifecycle.isCurrent(generation)
 
   internal suspend fun respond(prompt: LocalPrompt, requestId: String? = null): String {
     val generation = beginGeneration(GenerationKind.RESPOND, requestId)
     val completion = CompletableDeferred<String>()
     val job = scope.launch(start = CoroutineStart.LAZY) {
       try {
-        val fullPrompt = synchronized(stateLock) {
-          if (!isCurrentLocked(generation)) {
-            throw CancellationException("Generation was cancelled")
+        val text = if (synchronized(stateLock) { tools.isNotEmpty() || history.hasToolProtocol }) {
+          runToolTurns(generation, prompt) {}.also {
+            synchronized(stateLock) {
+              if (!isCurrentLocked(generation)) throw CancellationException("Generation cancelled")
+              history.addToolExchange(requireNotNull(generation.exchange))
+            }
           }
-          history.buildPrompt(addingUserMessage = prompt.text)
-        }
-        val prepared = prepareRequest(prompt, fullPrompt)
-        val text = try {
-          getOrCreateModel(generation)
-            .generateContent(prepared.handOffToSDK())
-            .candidates
-            .firstOrNull()
-            ?.text
-            .orEmpty()
-        } finally {
-          prepared.recycleIfUnsubmitted()
-        }
-        synchronized(stateLock) {
-          if (!isCurrentLocked(generation)) {
-            throw CancellationException("Generation was cancelled")
+        } else {
+          val fullPrompt = synchronized(stateLock) {
+            if (!isCurrentLocked(generation)) {
+              throw CancellationException("Generation was cancelled")
+            }
+            history.buildPrompt(addingUserMessage = prompt.text)
           }
-          history.addExchange(prompt.text, text)
+          val prepared = prepareRequest(prompt, fullPrompt)
+          val text = try {
+            getOrCreateModel(generation)
+              .generateContent(prepared.handOffToSDK())
+              .candidates
+              .firstOrNull()
+              ?.text
+              .orEmpty()
+          } finally {
+            prepared.recycleIfUnsubmitted()
+          }
+          synchronized(stateLock) {
+            if (!isCurrentLocked(generation)) {
+              throw CancellationException("Generation was cancelled")
+            }
+            history.addExchange(prompt.text, text)
+          }
+          text
         }
         completion.complete(text)
       } catch (error: CancellationException) {
@@ -266,54 +255,56 @@ class LLMSession(
     val job = scope.launch(start = CoroutineStart.LAZY) {
       var accumulated = ""
       try {
-        val fullPrompt = synchronized(stateLock) {
-          if (!isCurrentLocked(generation)) {
-            throw CancellationException("Generation was cancelled")
-          }
-          history.buildPrompt(addingUserMessage = prompt.text)
-        }
-        val prepared = prepareRequest(prompt, fullPrompt)
-        try {
-          getOrCreateModel(generation).generateContentStream(prepared.handOffToSDK()).collect { chunk ->
-            val token = chunk.candidates.firstOrNull()?.text.orEmpty()
-            synchronized(stateLock) {
-              if (!isCurrentLocked(generation)) {
-                throw CancellationException("Generation was cancelled")
-              }
-              accumulated += token
-              emit("token", mapOf(
-                "token" to token,
-                "accumulated" to accumulated,
-                "requestId" to generation.requestId
-              ))
+        val protocol = synchronized(stateLock) { tools.isNotEmpty() || history.hasToolProtocol }
+        if (protocol) {
+          runToolTurns(generation, prompt) { accumulated = it }
+        } else {
+          val fullPrompt = synchronized(stateLock) {
+            if (!isCurrentLocked(generation)) {
+              throw CancellationException("Generation was cancelled")
             }
+            history.buildPrompt(addingUserMessage = prompt.text)
           }
-        } finally {
-          prepared.recycleIfUnsubmitted()
+          val prepared = prepareRequest(prompt, fullPrompt)
+          try {
+            getOrCreateModel(generation).generateContentStream(prepared.handOffToSDK()).collect { chunk ->
+              val token = chunk.candidates.firstOrNull()?.text.orEmpty()
+              synchronized(stateLock) {
+                if (!isCurrentLocked(generation)) {
+                  throw CancellationException("Generation was cancelled")
+                }
+                accumulated += token
+                emit("token", mapOf(
+                  "token" to token,
+                  "accumulated" to accumulated,
+                  "requestId" to generation.requestId
+                ))
+              }
+            }
+          } finally {
+            prepared.recycleIfUnsubmitted()
+          }
         }
 
-        synchronized(stateLock) {
-          if (isCurrentLocked(generation)) {
-            history.addExchange(prompt.text, accumulated)
-            emit("streamComplete", mapOf(
-              "text" to accumulated,
-              "requestId" to generation.requestId
-            ))
-          }
+        lifecycle.finishOutput(generation) {
+          if (protocol) history.addToolExchange(requireNotNull(generation.exchange))
+          else history.addExchange(prompt.text, accumulated)
+          emit("streamComplete", mapOf(
+            "text" to accumulated,
+            "requestId" to generation.requestId
+          ))
         }
         completion.complete(accumulated)
       } catch (error: CancellationException) {
         completion.complete(accumulated)
       } catch (error: Exception) {
         val failure = mapImageRequestError(error, prompt)
-        synchronized(stateLock) {
-          if (isCurrentLocked(generation)) {
-            emit("streamError", mapOf(
-              "error" to failure.message,
-              "code" to failure.code,
-              "requestId" to generation.requestId
-            ))
-          }
+        lifecycle.finishOutput(generation) {
+          emit("streamError", mapOf(
+            "error" to failure.message,
+            "code" to failure.code,
+            "requestId" to generation.requestId
+          ))
         }
         completion.completeExceptionally(failure)
       }
@@ -346,15 +337,127 @@ class LLMSession(
     }
   }
 
-  fun cancelStream() {
-    val job = synchronized(stateLock) {
-      activeGeneration
-        ?.takeIf { it.kind == GenerationKind.STREAM }
-        ?.also { it.acceptsOutput = false }
-        ?.job
+  private suspend fun runToolTurns(
+    generation: ActiveGeneration,
+    prompt: LocalPrompt,
+    onAccumulated: (String) -> Unit
+  ): String {
+    val (registered, previous) = synchronized(stateLock) {
+      if (!isCurrentLocked(generation)) throw CancellationException("Generation cancelled")
+      tools.toMap() to history.contents()
+    }
+    val client = getOrCreateModel(generation)
+    if (registered.isNotEmpty()) {
+      requireToolSupport(client)
+    }
+    val bitmaps = decodeRequestImages(prompt.images)
+    val ownership = RequestImages(bitmaps)
+    try {
+      val user = Content.Builder().setRole(Content.Role.USER).text(prompt.text).apply {
+        prompt.imageSections().zip(bitmaps).forEach { (section, bitmap) ->
+          addPart(TextPart(section.labelText))
+          addPart(ImagePart(bitmap))
+        }
+      }.build()
+      val exchange = mutableListOf(user)
+      val transcript = mutableListOf<TranscriptTurn>(prompt.transcriptTurn())
+      val budget = ToolBudget()
+      var accumulated = ""
+      while (true) {
+        val request = GenerateContentRequest.Builder(previous + exchange).apply {
+          temperature = this@LLMSession.temperature
+          maxOutputTokens = maxTokens
+          topK = this@LLMSession.topK
+          setTools(registered.values.map { it.declaration })
+        }.build()
+        synchronized(stateLock) {
+          if (!isCurrentLocked(generation)) throw CancellationException("Generation cancelled")
+          ownership.handOffToSDK()
+        }
+        val response = if (generation.kind == GenerationKind.STREAM) {
+          val callback = ToolStreamingCallback { text ->
+            synchronized(stateLock) {
+              if (!isCurrentLocked(generation)) return@ToolStreamingCallback
+              accumulated += text
+              onAccumulated(accumulated)
+              emit("token", mapOf("token" to text, "accumulated" to accumulated, "requestId" to generation.requestId))
+            }
+          }
+          try { client.generateContent(request, callback) }
+          finally { callback.close() }
+        } else client.generateContent(request)
+        synchronized(stateLock) {
+          if (!isCurrentLocked(generation)) throw CancellationException("Generation cancelled")
+        }
+        val candidate = response.candidates.firstOrNull() ?: throw ToolFailedException("Missing model candidate")
+        val calls = budget.validateBatch(candidate.functionCalls, registered, candidate.finishReason)
+        if (generation.kind == GenerationKind.RESPOND) accumulated += candidate.text
+        val modelTurn = TranscriptTurn.Model(candidate.text, calls.map { it.call })
+        exchange.add(modelTurn.content())
+        transcript.add(modelTurn)
+        if (calls.isEmpty()) {
+          synchronized(stateLock) {
+            if (!isCurrentLocked(generation)) throw CancellationException("Generation cancelled")
+            generation.exchange = transcript
+          }
+          return accumulated
+        }
+        val resultTurn = serviceToolBatch(calls, generation.pending, toolTimeoutMillis) { id, validated ->
+          synchronized(stateLock) {
+            if (!isCurrentLocked(generation)) throw CancellationException("Generation cancelled")
+            emit("toolCall", mapOf(
+              "callId" to id,
+              "toolName" to validated.call.name,
+              "arguments" to validated.arguments,
+              "requestId" to generation.requestId
+            ))
+          }
+        }
+        transcript.add(resultTurn)
+        exchange.add(resultTurn.content())
+      }
+    } finally { ownership.recycleIfUnsubmitted() }
+  }
+
+  fun registerTool(config: ToolConfig) {
+    val tool = NativeTool(config)
+    changeTools { tools = tools + (tool.name to tool) }
+  }
+
+  fun unregisterTool(name: String) { changeTools { tools = tools - name } }
+
+  private fun changeTools(change: () -> Unit) {
+    val (job, oldModel) = synchronized(stateLock) {
+      if (disposed) return
+      change()
+      val generation = activeGeneration
+      generation?.let(lifecycle::invalidate)
+      if (generation == null) {
+        null to model.also { model = null }
+      } else {
+        modelResetPending = true
+        generation.job to null
+      }
     }
     job?.cancel()
+    oldModel?.close()
   }
+
+  fun resolveToolCall(callId: String, result: String) = synchronized(stateLock) {
+    val generation = activeGeneration
+    if (generation == null || !isCurrentLocked(generation) || !generation.pending.resolve(callId, result)) {
+      throw ToolNotFoundException(callId)
+    }
+  }
+
+  fun rejectToolCall(callId: String, error: String) = synchronized(stateLock) {
+    val generation = activeGeneration
+    if (generation == null || !isCurrentLocked(generation) || !generation.pending.reject(callId, error)) {
+      throw ToolNotFoundException(callId)
+    }
+  }
+
+  fun cancelStream() { lifecycle.cancelStream()?.cancel() }
 
   /**
    * Clear the conversation history (keeps instructions and generation
@@ -366,7 +469,7 @@ class LLMSession(
         throw SessionInvalidException()
       }
       val generation = activeGeneration
-      generation?.acceptsOutput = false
+      generation?.let(lifecycle::invalidate)
       history.clear()
       if (generation == null) {
         modelResetPending = false
@@ -389,9 +492,8 @@ class LLMSession(
         null to null
       } else {
         shouldRelease = true
-        disposed = true
+        lifecycle.release()
         val generation = activeGeneration
-        generation?.acceptsOutput = false
         if (generation == null) {
           modelResetPending = false
           null to model.also { model = null }

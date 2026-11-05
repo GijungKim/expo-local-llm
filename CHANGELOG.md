@@ -2,12 +2,16 @@
 
 ## 0.9.0 (unreleased)
 
+- Implement Android native function calling through the existing tool API and hook handler servicing. Validate complete batches before sequential dispatch; bound rounds, calls, timeouts, and result bytes. Replay native call/response protocol, retain whole exchange groups, and cancel pending handlers safely across reset, release, and registration changes.
+- Add explicit `androidModel: 'default' | 'previewFast'` selection and asynchronous `getModelReadiness()` with per-model availability and tool support. The default remains STABLE + FULL; previewFast selects PREVIEW + FAST. Old Android binaries cannot advertise tool support or silently select default for preview requests. Android remains experimental pending hardware validation.
+- Keep Android arbitrary runtime-schema JSON output unsupported; ML Kit requires compiled Kotlin types. No structured-output emulation or KSP is introduced.
+
 - Accept local image attachments through generation, sessions, and hooks while preserving string prompts. Requests support up to eight images with unique labels and strict local-file validation.
 - Add native image understanding on iOS 27+ when built with Xcode 27+ and the ready system model advertises vision support. Completed images remain in the native conversation transcript.
-- Upgrade Android to ML Kit Prompt beta4 and coroutines 1.11.0. Image decoding applies EXIF orientation, bounds each image to a 2048-pixel edge, and preserves bitmap ownership across cancellation. Android history remains text-only; model image support is reported as unknown and image inference remains experimental.
+- Upgrade Android to ML Kit Prompt beta5 and Schema alpha2 and coroutines 1.11.0. Image decoding applies EXIF orientation, bounds each image to a 2048-pixel edge, and preserves bitmap ownership across cancellation. Android history retains text and tool protocol only; model image support is reported as unknown and image inference remains experimental.
 - Add image capability reporting, stable image error codes, and one- and two-image examples.
 
-**Migration notes:** all Android consumers now require Kotlin 2.2.21+, including text-only apps. Configure the Kotlin Gradle plugin or `expo-build-properties` accordingly and rebuild the native app. Android's minimum SDK remains 26; iOS text generation retains its iOS 26 / Xcode 26.4 minimum.
+**Migration notes:** all Android consumers now require Kotlin 2.3.0+, including text-only apps. Configure the Kotlin Gradle plugin or `expo-build-properties` accordingly and rebuild the native app. Android's minimum SDK remains 26; iOS text generation retains its iOS 26 / Xcode 26.4 minimum.
 
 ## 0.8.1
 

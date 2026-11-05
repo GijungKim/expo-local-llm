@@ -1,12 +1,19 @@
 import { NativeModule, requireNativeModule } from "expo-modules-core";
 
-import type { ExpoLocalLlmModuleEvents } from "./ExpoLocalLlm.types";
+import type {
+  AndroidModel,
+  ModelAvailability,
+  ModelReadiness,
+  ExpoLocalLlmModuleEvents,
+} from "./ExpoLocalLlm.types";
 
 declare class ExpoLocalLlmModuleType extends NativeModule<ExpoLocalLlmModuleEvents> {
-  getAvailability(): string;
+  getAvailability(androidModel?: AndroidModel): ModelAvailability;
+  getToolCallingVersion?(): number;
+  getModelReadiness?(androidModel?: AndroidModel): Promise<ModelReadiness>;
   supportsImages?(): boolean;
   getImagePromptVersion?(): number;
-  downloadModel(): Promise<void>;
+  downloadModel(androidModel?: AndroidModel): Promise<void>;
   LLMSession: any;
 }
 

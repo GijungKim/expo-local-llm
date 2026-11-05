@@ -74,6 +74,7 @@ jest.mock("expo-modules-core", () => {
   }
   const nativeModule = {
     getAvailability: jest.fn(() => "available"),
+    getToolCallingVersion: jest.fn(() => 0),
     downloadModel: jest.fn(),
     addListener: jest.fn(() => ({ remove: jest.fn() })),
     LLMSession: MockNativeSession,
@@ -977,5 +978,165 @@ describe("useLocalLLM error codes and structured output", () => {
     expect(current().completedObject).toBeNull();
     expect(current().error).toBeNull();
     await unmount();
+  });
+});
+
+function AndroidSelectedConsumer({
+  model,
+  onValue,
+}: {
+  model: "default" | "previewFast";
+  onValue(value: HookResult): void;
+}) {
+  onValue(useLocalLLM({ androidModel: model }));
+  return null;
+}
+
+describe("Android model selection", () => {
+  const nativePlatform = require("react-native").Platform;
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockInstances.splice(0);
+    nativePlatform.OS = "android";
+    mockNativeModule.getToolCallingVersion.mockReturnValue(1);
+    mockNativeModule.getAvailability.mockImplementation((model: string) =>
+      model === "previewFast" ? "available" : "downloadRequired"
+    );
+  });
+  afterEach(() => {
+    nativePlatform.OS = "ios";
+  });
+
+  it("uses selected readiness download events and recreates configuration", async () => {
+    let current!: HookResult;
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(
+        React.createElement(AndroidSelectedConsumer, {
+          model: "previewFast",
+          onValue: (value) => {
+            current = value;
+          },
+        })
+      );
+    });
+    expect(current.availability).toBe("available");
+    expect(current.respond).toBeDefined();
+    expect(mockNativeModule.getAvailability).toHaveBeenLastCalledWith(
+      "previewFast"
+    );
+    await current.downloadModel!();
+    expect(mockNativeModule.downloadModel).toHaveBeenCalledWith("previewFast");
+    const change = [...mockNativeModule.addListener.mock.calls]
+      .reverse()
+      .find(([name]) => name === "availabilityChange")[1];
+    const progress = [...mockNativeModule.addListener.mock.calls]
+      .reverse()
+      .find(([name]) => name === "downloadProgress")[1];
+    await act(async () => {
+      change({ availability: "notReady", androidModel: "default" });
+      progress({ progress: 0.25, androidModel: "default" });
+    });
+    expect(current.availability).toBe("available");
+    expect(current.downloadProgress).toBeNull();
+    await act(async () => {
+      change({ availability: "downloading", androidModel: "previewFast" });
+      progress({ progress: 0.5, androidModel: "previewFast" });
+    });
+    expect(current.availability).toBe("downloading");
+    expect(current.downloadProgress).toBe(0.5);
+    const first = mockInstances.at(-1);
+    await act(async () => {
+      renderer.update(
+        React.createElement(AndroidSelectedConsumer, {
+          model: "default",
+          onValue: (value) => {
+            current = value;
+          },
+        })
+      );
+    });
+    expect(first.released).toBe(true);
+    expect(mockSessionConstructor).toHaveBeenLastCalledWith(
+      expect.objectContaining({ androidModel: "default" })
+    );
+    expect(current.availability).toBe("downloadRequired");
+    expect(current.downloadProgress).toBeNull();
+    await act(async () => {
+      change({ availability: "available", androidModel: "previewFast" });
+      progress({ progress: 0.9, androidModel: "previewFast" });
+    });
+    expect(current.availability).toBe("downloadRequired");
+    expect(current.downloadProgress).toBeNull();
+    expect(current.respond).toBeUndefined();
+    await act(async () => renderer.unmount());
+  });
+
+  it("services Android native tool events through the existing handler path", async () => {
+    mockNativeModule.getAvailability.mockReturnValue("available");
+    const handler = jest.fn(async () => "opaque result");
+    let current!: HookResult;
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(
+        React.createElement(ToolConsumer, {
+          instructions: "android tools",
+          handler,
+          onValue: (value) => {
+            current = value;
+          },
+        })
+      );
+    });
+    const session = mockInstances.at(-1);
+    const response = deferred<string>();
+    session.respond.mockReturnValueOnce(response.promise);
+    let pending!: Promise<string>;
+    await act(async () => {
+      pending = current.respond!("lookup");
+    });
+    const requestId = session.respond.mock.calls.at(-1)[1];
+    await act(async () => {
+      session.emit("toolCall", {
+        requestId,
+        callId: "bridge-id",
+        toolName: "lookup",
+        arguments: {},
+      });
+    });
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(session.resolveToolCall).toHaveBeenCalledWith(
+      "bridge-id",
+      "opaque result"
+    );
+    await act(async () => {
+      response.resolve("done");
+      await pending;
+      renderer.unmount();
+    });
+  });
+
+  it("fails preview clearly on old binaries without checking default readiness", async () => {
+    mockNativeModule.getToolCallingVersion.mockReturnValue(0);
+    let current!: HookResult;
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(
+        React.createElement(AndroidSelectedConsumer, {
+          model: "previewFast",
+          onValue: (value) => {
+            current = value;
+          },
+        })
+      );
+    });
+    expect(current.session).toBeNull();
+    expect(current.errorCode).toBe("ERR_UNSUPPORTED_REQUEST");
+    expect(current.respond).toBeUndefined();
+    expect(mockNativeModule.getAvailability).not.toHaveBeenCalled();
+    await expect(current.downloadModel!()).rejects.toMatchObject({
+      code: "ERR_UNSUPPORTED_REQUEST",
+    });
+    await act(async () => renderer.unmount());
   });
 });

@@ -1,10 +1,13 @@
 import type {
+  AndroidModel,
+  ModelReadiness,
   LocalLLMCapabilities,
   NativeModuleDiagnostics,
 } from "./ExpoLocalLlm.types";
 import ExpoLocalLlmModule, {
   nativeModuleLoadError,
 } from "./ExpoLocalLlmModule";
+import { LocalLLMError } from "./errors";
 
 const SETUP_INSTRUCTIONS = [
   "Use an Expo development build; Expo Go cannot load expo-local-llm's native module.",
@@ -94,9 +97,62 @@ export function getCapabilities(): LocalLLMCapabilities {
     text: supported,
     streaming: supported,
     images,
-    tools: supported && isIOS,
+    tools:
+      supported &&
+      (isIOS || ExpoLocalLlmModule?.getToolCallingVersion?.() === 1),
     structuredOutput: supported && isIOS,
     structuredOutputMode: supported && isIOS ? "constrained" : "unsupported",
     experimental: !isIOS,
   };
+}
+
+/** Fail explicitly instead of letting an older binary silently select default. */
+export function assertAndroidModelSupport(androidModel?: AndroidModel): void {
+  const nativePlatform = require("react-native").Platform;
+  if (
+    nativePlatform.OS === "android" &&
+    androidModel &&
+    androidModel !== "default" &&
+    (androidModel !== "previewFast" ||
+      ExpoLocalLlmModule?.getToolCallingVersion?.() !== 1)
+  ) {
+    throw new LocalLLMError(
+      "ERR_UNSUPPORTED_REQUEST",
+      "This Android build cannot select previewFast. Rebuild with native tool calling version 1."
+    );
+  }
+}
+
+export async function getModelReadiness(
+  androidModel: AndroidModel = "default"
+): Promise<ModelReadiness> {
+  if (!ExpoLocalLlmModule)
+    return { availability: "moduleUnavailable", tools: "unavailable" };
+  assertAndroidModelSupport(androidModel);
+  const nativePlatform = require("react-native").Platform;
+  if (
+    nativePlatform.OS === "android" &&
+    ExpoLocalLlmModule.getToolCallingVersion?.() === 1 &&
+    ExpoLocalLlmModule.getModelReadiness
+  ) {
+    try {
+      return await ExpoLocalLlmModule.getModelReadiness(androidModel);
+    } catch {
+      return { availability: "unknown", tools: "unknown" };
+    }
+  }
+  if (
+    nativePlatform.OS === "android" &&
+    ExpoLocalLlmModule.getToolCallingVersion?.() === 1
+  ) {
+    return { availability: "unknown", tools: "unknown" };
+  }
+  try {
+    return {
+      availability: ExpoLocalLlmModule.getAvailability(),
+      tools: getCapabilities().tools ? "available" : "unavailable",
+    };
+  } catch {
+    return { availability: "unknown", tools: "unknown" };
+  }
 }

@@ -10,7 +10,11 @@ import type {
   ToolConfig,
 } from "./ExpoLocalLlm.types";
 import ExpoLocalLlmModule from "./ExpoLocalLlmModule";
-import { getCapabilities, getModuleDiagnostics } from "./capabilities";
+import {
+  assertAndroidModelSupport,
+  getCapabilities,
+  getModuleDiagnostics,
+} from "./capabilities";
 import { LocalLLMError } from "./errors";
 import {
   parseStructuredOutput,
@@ -53,6 +57,19 @@ export class LLMSession extends SharedObject<LLMSessionEvents> {
 export function createLLMSession(config: SessionConfig = {}): LLMSession {
   if (!ExpoLocalLlmModule) {
     throw new NativeModuleUnavailableError("createLLMSession");
+  }
+
+  assertAndroidModelSupport(config.androidModel);
+  const nativePlatform = require("react-native").Platform;
+  if (
+    nativePlatform.OS === "android" &&
+    config.tools?.length &&
+    ExpoLocalLlmModule.getToolCallingVersion?.() !== 1
+  ) {
+    throw new LocalLLMError(
+      "ERR_TOOL_NOT_SUPPORTED",
+      "Native tool calling is unavailable in this build. Rebuild the app with native tool support."
+    );
   }
 
   if (config.responseFormat === "json" && !config.schema) {

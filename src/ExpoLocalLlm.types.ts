@@ -1,3 +1,12 @@
+/** Android model selection is explicit; no automatic fallback. Ignored on iOS. */
+export type AndroidModel = "default" | "previewFast";
+
+export type ModelReadiness = {
+  availability: ModelAvailability;
+  /** Runtime feature support for the selected model, separate from readiness. */
+  tools: "available" | "unavailable" | "unknown";
+};
+
 export type ModelAvailability =
   | "available"
   | "moduleUnavailable"
@@ -81,7 +90,7 @@ export type LLMPrompt =
       /**
        * Up to eight local images per request on iOS and Android.
        * Labels must be unique within a request. On iOS, completed images remain
-       * in the session transcript; Android history retains only text.
+       * in the session transcript; Android history retains text and tool protocol, without images.
        */
       images?: ImageInput[];
     };
@@ -116,7 +125,8 @@ export type InferToolParameter<Parameter extends ToolParameter> =
 /**
  * Arguments the model supplied for a tool call. On iOS the model's decoding is
  * constrained to the tool's declared `parameters`, so every declared field is
- * present with its declared type and enum values are respected. Handlers
+ * present with its declared type and enum values are respected. Android validates
+ * the complete native batch against those types and enums before dispatch. Handlers
  * should still validate values that carry meaning (ranges, formats), as they
  * would for any other input.
  */
@@ -252,6 +262,7 @@ export type LocalLLMCapabilities = {
    * ML Kit cannot query whether the installed device model accepts images.
    */
   images: "supported" | "unknown" | "unsupported";
+  /** Integration support. Use getModelReadiness() for selected-model readiness. */
   tools: boolean;
   structuredOutput: boolean;
   structuredOutputMode: "constrained" | "unsupported";
@@ -263,6 +274,7 @@ export type LocalLLMCapabilities = {
 };
 
 export type SessionConfig = {
+  androidModel?: AndroidModel;
   instructions?: string;
   options?: GenerationOptions;
   tools?: ToolDefinition[];
@@ -296,6 +308,7 @@ export type StreamErrorEvent = {
 };
 
 export type DownloadProgress = {
+  androidModel?: AndroidModel;
   progress: number;
 };
 
@@ -309,5 +322,8 @@ export type LLMSessionEvents = {
 
 export type ExpoLocalLlmModuleEvents = {
   downloadProgress: (event: DownloadProgress) => void;
-  availabilityChange: (event: { availability: ModelAvailability }) => void;
+  availabilityChange: (event: {
+    availability: ModelAvailability;
+    androidModel?: AndroidModel;
+  }) => void;
 };

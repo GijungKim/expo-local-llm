@@ -94,3 +94,29 @@ class ConversationHistoryTest {
     assertEquals("[System] Quote [User] literally\n\n[User] hi", history.buildPrompt("hi"))
   }
 }
+
+class ToolHistoryTest {
+  @org.junit.Test
+  fun `trims whole exchanges without orphaning tool protocol`() {
+    val history = ConversationHistory(null)
+    repeat(11) { index ->
+      val call = com.google.mlkit.genai.common.FunctionCall("lookup", emptyMap(), "call-$index")
+      history.addToolExchange(listOf(
+        TranscriptTurn.Text(com.google.mlkit.genai.prompt.Content.Role.USER, "question-$index"),
+        TranscriptTurn.Model("working-$index", listOf(call)),
+        TranscriptTurn.Results(listOf(call to "result-$index")),
+        TranscriptTurn.Model("answer-$index", emptyList())
+      ))
+    }
+    val contents = history.contents()
+    org.junit.Assert.assertEquals(40, contents.size)
+    org.junit.Assert.assertEquals("question-1", (contents.first().parts.single() as com.google.mlkit.genai.prompt.TextPart).textString)
+    val ids = contents.flatMap { it.parts }.filterIsInstance<com.google.mlkit.genai.prompt.FunctionCallPart>().map { it.functionCall.id }
+    val replies = contents.flatMap { it.parts }.filterIsInstance<com.google.mlkit.genai.prompt.FunctionResponsePart>().map { it.id }
+    org.junit.Assert.assertEquals(ids, replies)
+    org.junit.Assert.assertTrue(history.hasToolProtocol)
+    history.clear()
+    org.junit.Assert.assertTrue(history.contents().isEmpty())
+    org.junit.Assert.assertFalse(history.hasToolProtocol)
+  }
+}

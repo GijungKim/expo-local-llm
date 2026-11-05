@@ -21,12 +21,21 @@ class SessionBusyException :
 class ResponseFormatNotSupportedException :
   CodedException(
     "ERR_RESPONSE_FORMAT_NOT_SUPPORTED",
-    "Structured JSON output is not supported on Android yet",
+    "Android cannot compile runtime JS schemas into the Kotlin types required by ML Kit structured output",
     null
   )
 
-class ToolNotSupportedException :
-  CodedException("ERR_TOOL_NOT_SUPPORTED", "Tool calling is not supported on Android yet", null)
+class ToolNotSupportedException(message: String = "The selected Android model does not support native function calling") :
+  CodedException("ERR_TOOL_NOT_SUPPORTED", message, null)
 
 class ImageInvalidException(message: String, cause: Throwable? = null) :
   CodedException("ERR_IMAGE_INVALID", message, cause)
+
+class ToolFailedException(message: String) :
+  CodedException("ERR_TOOL_FAILED", message, null)
+
+class ToolInvalidException(message: String) :
+  CodedException("ERR_SCHEMA_INVALID", message, null)
+
+class ToolNotFoundException(callId: String) :
+  CodedException("ERR_TOOL_FAILED", "No pending tool call: $callId", null)

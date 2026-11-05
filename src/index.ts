@@ -8,7 +8,11 @@ export {
   generateObject,
 } from "./LLMSession";
 export { default as ExpoLocalLlmModule } from "./ExpoLocalLlmModule";
-export { getCapabilities, getModuleDiagnostics } from "./capabilities";
+export {
+  getCapabilities,
+  getModuleDiagnostics,
+  getModelReadiness,
+} from "./capabilities";
 export { LocalLLMError, getLocalLLMErrorCode } from "./errors";
 export {
   validateSchema,

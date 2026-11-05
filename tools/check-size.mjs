@@ -26,8 +26,8 @@ if (result.outputs.length !== 1) {
 
 const bytes = new Uint8Array(await result.outputs[0].arrayBuffer());
 const gzipBytes = gzipSync(bytes).length;
-const minifiedBudget = 13_000;
-const gzipBudget = 4_500;
+const minifiedBudget = 15_000;
+const gzipBudget = 5_000;
 
 console.log(`${packageJson.name}@${packageJson.version} standalone JS (Bun ${Bun.version})`);
 console.log(`Minified: ${bytes.length} bytes / ${minifiedBudget} budget`);

@@ -333,6 +333,24 @@ class ImagePromptTest {
     assertTrue(mapped.message.orEmpty().contains("\"first\", \"second\""))
   }
 
+  @Test
+  fun `tool history discards bitmaps while live exchanges retain them for followup`() {
+    val bitmap = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
+    val ownership = RequestImages(listOf(bitmap))
+    val prompt = imagePrompt("file:///tmp/photo.png" to "photo").toLocalPrompt()
+    val call = com.google.mlkit.genai.common.FunctionCall("lookup", emptyMap(), null)
+    val exchange = listOf(prompt.transcriptTurn(), TranscriptTurn.Model("working", listOf(call)), TranscriptTurn.Results(listOf(call to "ok")))
+    ownership.handOffToSDK()
+    ownership.handOffToSDK()
+    val history = ConversationHistory(null)
+    history.addToolExchange(exchange)
+    ownership.recycleIfUnsubmitted()
+    assertFalse(bitmap.isRecycled)
+    assertEquals(prompt.text, (history.contents().first().parts.single() as com.google.mlkit.genai.prompt.TextPart).textString)
+    assertEquals(3, history.contents().size)
+    bitmap.recycle()
+  }
+
   private fun imagePrompt(vararg inputs: Pair<String, String>) = PromptRecord().apply {
     text = "Describe it"
     images = inputs.map { (uri, label) ->
