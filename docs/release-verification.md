@@ -131,3 +131,9 @@ Local verification (2026-11-05): all 155 JS tests passed, including 91 native-pr
 Size review: Bun 1.4.4 measures 17,700 bytes minified / 5,988 gzipped, versus the `5165adc` baseline of 14,582 / 4,886 (increases of 3,118 / 1,102 bytes). The added implementation supplies input snapshots, bounds, cancellation cleanup, and the explicit repair loop without new runtime dependencies. Reviewed budgets are 18,000 minified / 6,200 gzip bytes; CI continues to enforce them.
 
 Pending on compatible iOS and Android hardware: successful extraction with each selected model; frequency and latency of validation repair; native errors, context/token limits and cancellation; image attachments retained during repair. No device actions, APK builds, or Xcode builds were performed for this JS-only increment. Android remains experimental.
+
+## 0.9.0 release preflight — 2026-11-05
+
+The release is based on `e723da3` (PR #80), whose four CI checks passed. The final local lint, 155 JS tests, 40 anti-slop rule tests, 14 build-script tests, knip, source/type-fixture checks, package build, and size check passed again. The macOS 27.0 (26A428), Apple silicon system-model check passed all four scenarios: constrained tool arguments, failed-handler error mapping, context-overflow error mapping, and structured schema output. This does not validate the new JS validated-output path or Android inference.
+
+The clean prepublish build and packed artifact inspection passed. An isolated TypeScript consumer installed the tarball with lifecycle scripts disabled and verified validated-mode options, inferred enum output, model selection, and image prompt types. The package includes compiled JS/declarations and both native integrations; example assets and native build artifacts are excluded. The existing device-test gaps above remain open, and Android remains experimental.

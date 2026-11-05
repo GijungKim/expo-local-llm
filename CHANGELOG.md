@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.0 (unreleased)
+## 0.9.0 — 2026-11-05
 
 - Implement Android native function calling through the existing tool API and hook handler servicing. Validate complete batches before sequential dispatch; bound rounds, calls, timeouts, and result bytes. Replay native call/response protocol, retain whole exchange groups, and cancel pending handlers safely across reset, release, and registration changes.
 - Add explicit `androidModel: 'default' | 'previewFast'` selection and asynchronous `getModelReadiness()` with per-model availability and tool support. The default remains STABLE + FULL; previewFast selects PREVIEW + FAST. Old Android binaries cannot advertise tool support or silently select default for preview requests. Android remains experimental pending hardware validation.
