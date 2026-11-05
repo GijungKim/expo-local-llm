@@ -8,6 +8,26 @@ class NotSupportedException: Exception, @unchecked Sendable {
   }
 }
 
+class ImageNotSupportedException: Exception, @unchecked Sendable {
+  override var code: String {
+    "ERR_IMAGE_NOT_SUPPORTED"
+  }
+
+  override var reason: String {
+    "Image prompts require iOS 27 or later and a vision-capable Apple Foundation Model"
+  }
+}
+
+class ImageInvalidException: GenericException<String>, @unchecked Sendable {
+  override var code: String {
+    "ERR_IMAGE_INVALID"
+  }
+
+  override var reason: String {
+    param
+  }
+}
+
 class SessionInvalidException: Exception, @unchecked Sendable {
   override var reason: String {
     "LLM session is invalid or has been destroyed"

@@ -49,6 +49,7 @@ export function getCapabilities(): LocalLLMCapabilities {
       status: "unsupportedPlatform",
       text: false,
       streaming: false,
+      images: "unsupported",
       tools: false,
       structuredOutput: false,
       structuredOutputMode: "unsupported",
@@ -61,6 +62,24 @@ export function getCapabilities(): LocalLLMCapabilities {
   const supportedOS =
     !isIOS || Number.parseInt(String(nativePlatform.Version), 10) >= 26;
   const supported = available && supportedOS;
+  let images: LocalLLMCapabilities["images"] = "unsupported";
+  if (
+    isIOS &&
+    supported &&
+    Number.parseInt(String(nativePlatform.Version), 10) >= 27
+  ) {
+    if (ExpoLocalLlmModule?.supportsImages?.()) {
+      images = "supported";
+    }
+  } else if (!isIOS && available) {
+    try {
+      if (ExpoLocalLlmModule?.getAvailability() === "available") {
+        images = "unknown";
+      }
+    } catch {
+      // Availability can fail while Android's model service is starting.
+    }
+  }
   return {
     platform,
     backend: isIOS ? "appleFoundationModels" : "geminiNano",
@@ -71,6 +90,7 @@ export function getCapabilities(): LocalLLMCapabilities {
       : "unsupportedOS",
     text: supported,
     streaming: supported,
+    images,
     tools: supported && isIOS,
     structuredOutput: supported && isIOS,
     structuredOutputMode: supported && isIOS ? "constrained" : "unsupported",

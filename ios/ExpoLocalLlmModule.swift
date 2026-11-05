@@ -13,6 +13,13 @@ public class ExpoLocalLlmModule: Module {
       return ModelAvailability.notEligible.rawValue
     }
 
+    Function("supportsImages") { () -> Bool in
+      if #available(iOS 26, *) {
+        return FoundationModelBridge.supportsImages()
+      }
+      return false
+    }
+
     AsyncFunction("downloadModel") {
       // No-op on iOS — model is built into the OS
     }
@@ -24,12 +31,14 @@ public class ExpoLocalLlmModule: Module {
         return session
       }
 
-      AsyncFunction("respond") { (session: LLMSession, prompt: String, requestId: String?) -> String in
-        return try await session.respond(to: prompt, requestId: requestId)
+      AsyncFunction("respond") { (session: LLMSession, prompt: Either<String, PromptRecord>, requestId: String?) -> String in
+        let localPrompt = try PromptRecord.localPrompt(from: prompt)
+        return try await session.respond(to: localPrompt, requestId: requestId)
       }
 
-      AsyncFunction("streamResponse") { (session: LLMSession, prompt: String, requestId: String?) -> String in
-        return try await session.streamResponse(prompt: prompt, requestId: requestId)
+      AsyncFunction("streamResponse") { (session: LLMSession, prompt: Either<String, PromptRecord>, requestId: String?) -> String in
+        let localPrompt = try PromptRecord.localPrompt(from: prompt)
+        return try await session.streamResponse(prompt: localPrompt, requestId: requestId)
       }
 
       AsyncFunction("cancelStream") { (session: LLMSession) in

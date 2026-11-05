@@ -1,22 +1,18 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": [
-    "src/index.ts",
-    "src/__tests__/**/*.test.ts",
-    "src/__tests__/**/*.typecheck.ts",
-    "example/index.ts",
-    "example/babel.config.js",
-    "example/metro.config.js"
+  "ignoreFiles": [
+    "tools/oxlint/anti-slop/**"
   ],
-  "project": [
-    "src/**/*.ts",
-    "example/**/*.{js,ts,tsx}"
+  "ignoreDependencies": [
+    "@oxlint/plugins"
   ],
-  "ignoreFiles": ["tools/oxlint/anti-slop/**"],
-  "ignoreDependencies": ["@oxlint/plugins"],
-  "ignoreBinaries": ["xed"],
+  "ignoreBinaries": [
+    "xed"
+  ],
   "jest": {
-    "config": ["package.json"]
+    "config": [
+      "package.json"
+    ]
   },
   "include": [
     "files",
@@ -24,5 +20,27 @@
     "devDependencies",
     "unlisted",
     "binaries"
-  ]
+  ],
+  "workspaces": {
+    ".": {
+      "entry": [
+        "src/index.ts",
+        "src/__tests__/**/*.test.ts",
+        "src/__tests__/**/*.typecheck.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ]
+    },
+    "example": {
+      "entry": [
+        "index.ts",
+        "babel.config.js",
+        "metro.config.js"
+      ],
+      "project": [
+        "**/*.{js,ts,tsx}"
+      ]
+    }
+  }
 }

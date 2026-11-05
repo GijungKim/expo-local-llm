@@ -2,6 +2,7 @@ package expo.modules.localllm
 
 import expo.modules.kotlin.records.Field
 import expo.modules.kotlin.records.Record
+import expo.modules.kotlin.records.Required
 
 class SessionConfig : Record {
   @Field
@@ -32,6 +33,23 @@ class GenerationOptionsRecord : Record {
 
   @Field
   var topK: Int? = null
+}
+
+class PromptRecord : Record {
+  @Required
+  @Field
+  var text: String = ""
+
+  @Field
+  var images: List<ImageInputRecord>? = null
+}
+
+class ImageInputRecord : Record {
+  @Field
+  var uri: String = ""
+
+  @Field
+  var label: String = ""
 }
 
 class ToolConfig : Record {

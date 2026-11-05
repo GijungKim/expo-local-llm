@@ -4,6 +4,7 @@ import type { ExpoLocalLlmModuleEvents } from "./ExpoLocalLlm.types";
 
 declare class ExpoLocalLlmModuleType extends NativeModule<ExpoLocalLlmModuleEvents> {
   getAvailability(): string;
+  supportsImages?(): boolean;
   downloadModel(): Promise<void>;
   LLMSession: any;
 }

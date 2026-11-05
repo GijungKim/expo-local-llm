@@ -6,6 +6,7 @@ import type {
   Schema,
   SessionConfig,
   LLMSessionEvents,
+  LLMPrompt,
   ToolConfig,
 } from "./ExpoLocalLlm.types";
 import ExpoLocalLlmModule from "./ExpoLocalLlmModule";
@@ -28,14 +29,14 @@ export class NativeModuleUnavailableError extends UnavailabilityError {
 export class LLMSession extends SharedObject<LLMSessionEvents> {
   // Methods are implemented natively via the Class() DSL.
   // TypeScript declarations provide type safety only.
-  respond!: (prompt: string, requestId?: string) => Promise<string>;
+  respond!: (prompt: LLMPrompt, requestId?: string) => Promise<string>;
   /**
    * Streams a response, emitting `token`/`partial` events along the way.
    * Resolves with the final text when the stream completes, or with the
    * partial text produced so far if the stream is cancelled via
    * `cancelStream()`. Rejects if the stream fails.
    */
-  streamResponse!: (prompt: string, requestId?: string) => Promise<string>;
+  streamResponse!: (prompt: LLMPrompt, requestId?: string) => Promise<string>;
   cancelStream!: () => Promise<void>;
   /**
    * Clears the conversation transcript while keeping instructions, tools,
@@ -91,7 +92,7 @@ export function createLLMSession(config: SessionConfig = {}): LLMSession {
  * an availability check first can use `ExpoLocalLlmModule.getAvailability()`.
  */
 export async function generate(
-  prompt: string,
+  prompt: LLMPrompt,
   config: SessionConfig = {}
 ): Promise<string> {
   if (config.tools?.length) {
@@ -109,7 +110,7 @@ export async function generate(
 }
 
 export async function generateObject<const Definition extends Schema>(
-  prompt: string,
+  prompt: LLMPrompt,
   config: GenerateObjectConfig<Definition>
 ): Promise<InferSchema<Definition>> {
   const capabilities = getCapabilities();

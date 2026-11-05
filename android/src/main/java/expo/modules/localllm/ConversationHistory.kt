@@ -3,11 +3,11 @@ package expo.modules.localllm
 class ConversationHistory(private val systemInstructions: String?) {
   private data class Message(val role: String, val content: String)
 
-  private companion object {
+  internal companion object {
     // Gemini Nano receives one flat prompt, so roles exist only as these
     // markers. Neutralise them in conversation text so a message cannot
     // impersonate the system instructions or another turn.
-    val roleMarker = Regex("""\[\s*(system|user|assistant)\s*]""", RegexOption.IGNORE_CASE)
+    private val roleMarker = Regex("""\[\s*(system|user|assistant)\s*]""", RegexOption.IGNORE_CASE)
 
     fun neutralise(content: String): String = content.replace(roleMarker, "($1)")
   }

@@ -3,6 +3,7 @@ package expo.modules.localllm
 import expo.modules.kotlin.functions.Coroutine
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import expo.modules.kotlin.types.Either
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -62,12 +63,12 @@ class ExpoLocalLlmModule : Module() {
         LLMSession(config)
       }
 
-      AsyncFunction("respond") Coroutine { session: LLMSession, prompt: String, requestId: String? ->
-        session.respond(prompt, requestId)
+      AsyncFunction("respond") Coroutine { session: LLMSession, prompt: Either<String, PromptRecord>, requestId: String? ->
+        session.respond(prompt.toLocalPrompt(), requestId)
       }
 
-      AsyncFunction("streamResponse") Coroutine { session: LLMSession, prompt: String, requestId: String? ->
-        session.streamResponse(prompt, requestId)
+      AsyncFunction("streamResponse") Coroutine { session: LLMSession, prompt: Either<String, PromptRecord>, requestId: String? ->
+        session.streamResponse(prompt.toLocalPrompt(), requestId)
       }
 
       AsyncFunction("cancelStream") { session: LLMSession ->
