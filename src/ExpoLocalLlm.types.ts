@@ -226,7 +226,17 @@ export type GenerateObjectConfig<Definition extends Schema> = Omit<
   schema: Definition;
   /** One-shot helpers cannot service native tool-call events. */
   tools?: never;
-};
+} & (
+    | { mode?: "constrained"; repairAttempts?: never; signal?: never }
+    | {
+        /** Text generation followed by JS validation, not constrained decoding. */
+        mode: "validated";
+        /** Additional attempts after invalid JSON/schema output. Defaults to 1. */
+        repairAttempts?: 0 | 1;
+        /** Rejects with Error.name === "AbortError" and releases the session. */
+        signal?: AbortSignal;
+      }
+  );
 
 export type NativeModuleDiagnostics =
   | {
@@ -264,6 +274,7 @@ export type LocalLLMCapabilities = {
   images: "supported" | "unknown" | "unsupported";
   /** Integration support. Use getModelReadiness() for selected-model readiness. */
   tools: boolean;
+  /** Native constrained output only. Explicit validated mode requires `text`. */
   structuredOutput: boolean;
   structuredOutputMode: "constrained" | "unsupported";
   /**

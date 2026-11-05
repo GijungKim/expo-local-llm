@@ -40,8 +40,68 @@ const ALLOWED_TYPES = new Set([
   "object",
 ]);
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
+function isPlainObject<Value>(v: Value): v is Value & Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function copyField(field: SchemaField, depth: number): SchemaField {
+  if (depth > 16) throw new Error("Schema exceeds 16 levels.");
+  if (!isPlainObject(field)) throw new Error("Schema fields must be objects.");
+  if ("toJSON" in field)
+    throw new Error("Schema serialization hooks are unsupported.");
+  switch (field.type) {
+    case "object":
+      return { ...field, properties: copySchema(field.properties, depth + 1) };
+    case "array":
+      return { ...field, items: copyField(field.items, depth + 1) };
+    case "string": {
+      if (!("enum" in field)) return { ...field };
+      const values = field.enum;
+      if (!Array.isArray(values)) throw new Error("Enum must be an array.");
+      const copied: string[] = [];
+      for (let index = 0; index < values.length; index++) {
+        const value = values[index];
+        copied.push(value);
+      }
+      return { ...field, enum: copied };
+    }
+    default:
+      return { ...field };
+  }
+}
+
+function copySchema(schema: Schema, depth: number): Schema {
+  if (!isPlainObject(schema))
+    throw new Error("Schema containers must be objects.");
+  return Object.fromEntries(
+    Object.entries(schema).map(([key, field]) => [key, copyField(field, depth)])
+  );
+}
+
+export function snapshotSchema<const Definition extends Schema>(
+  schema: Definition
+): Definition {
+  try {
+    // Bounded recursion rejects cycles too; serialize the independent copy.
+    const snapshot = copySchema(schema, 1);
+    const validation = validateSchema(snapshot);
+    if (!validation.ok) throw new SchemaInvalidError(validation.errors);
+    if (JSON.stringify(snapshot).length > 16_384) {
+      throw new Error("Schema exceeds 16384 characters.");
+    }
+    // SAFETY: copySchema preserves each field, enum and container in Definition;
+    // validateSchema checked the independent copy before it is used or returned.
+    return snapshot as Definition;
+  } catch (error) {
+    if (error instanceof SchemaInvalidError) throw error;
+    throw new SchemaInvalidError([
+      {
+        path: "$",
+        message:
+          error instanceof Error ? error.message : "Cannot snapshot schema.",
+      },
+    ]);
+  }
 }
 
 function validateField(

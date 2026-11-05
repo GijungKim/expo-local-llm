@@ -1,4 +1,9 @@
-import type { SessionConfig } from "../ExpoLocalLlm.types";
+import type {
+  GenerateObjectConfig,
+  Schema,
+  SchemaField,
+  SessionConfig,
+} from "../ExpoLocalLlm.types";
 import {
   createLLMSession,
   generate,
@@ -19,11 +24,13 @@ jest.mock("expo-modules-core", () => {
   const respond = jest.fn();
   const release = jest.fn();
   const sessionConstructor = jest.fn();
+  const sessions: MockNativeSession[] = [];
   class MockNativeSession {
     respond = respond;
-    release = release;
+    release = jest.fn(() => release());
     constructor(config: SessionConfig) {
       sessionConstructor(config);
+      sessions.push(this);
     }
   }
   const nativeModule = {
@@ -38,6 +45,7 @@ jest.mock("expo-modules-core", () => {
     __respond: respond,
     __release: release,
     __sessionConstructor: sessionConstructor,
+    __sessions: sessions,
   };
   return {
     requireNativeModule: jest.fn(() => nativeModule),
@@ -56,6 +64,10 @@ const mockSessionConstructor = mockNativeModule.__sessionConstructor;
 describe("native-present API", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockRespond.mockReset();
+    mockRelease.mockReset();
+    mockSessionConstructor.mockReset();
+    mockNativeModule.__sessions.length = 0;
     mockNativeModule.getAvailability.mockReturnValue("available");
     mockNativeModule.supportsImages.mockReturnValue(false);
     mockNativeModule.getImagePromptVersion.mockReturnValue(1);
@@ -292,7 +304,7 @@ describe("native-present API", () => {
     });
     const kind: "a" | "b" = result.kind;
     expect(kind).toBe("a");
-    expect(result.rows[0].value).toBe(2);
+    expect(result.rows[0]?.value).toBe(2);
     expect(mockRelease).toHaveBeenCalledTimes(1);
   });
 
@@ -324,6 +336,537 @@ describe("native-present API", () => {
       })
     ).rejects.toThrow(/not supported on android/);
     expect(mockSessionConstructor).not.toHaveBeenCalled();
+  });
+
+  describe("explicit validated output", () => {
+    const schema = {
+      kind: { type: "string", enum: ["a", "b"] },
+      rows: {
+        type: "array",
+        items: { type: "object", properties: { value: { type: "integer" } } },
+      },
+    } as const satisfies Schema;
+    const valid = { kind: "a", rows: [{ value: 2 }] };
+    const output = JSON.stringify(valid);
+    const config = { mode: "validated", schema } as const;
+
+    function pendingResponse() {
+      let resolve!: (value: string) => void;
+      let reject!: (error: Error) => void;
+      const promise = new Promise<string>((accept, decline) => {
+        resolve = accept;
+        reject = decline;
+      });
+      return { promise, resolve, reject };
+    }
+
+    afterEach(() => {
+      for (const session of mockNativeModule.__sessions) {
+        expect(session.release).toHaveBeenCalledTimes(1);
+      }
+    });
+
+    it.each(["ios", "android"])(
+      "validates nested fields and enums on %s through TEXT",
+      async (platform) => {
+        mockPlatform.OS = platform;
+        mockRespond.mockResolvedValueOnce(output);
+        const result = await generateObject("extract", config);
+        const kind: "a" | "b" = result.kind;
+        expect(kind).toBe("a");
+        expect(result).toEqual(valid);
+        expect(mockSessionConstructor).toHaveBeenCalledTimes(1);
+        const nativeConfig = mockSessionConstructor.mock.calls[0][0];
+        expect(nativeConfig.responseFormat).toBe("text");
+        for (const option of [
+          "schema",
+          "mode",
+          "repairAttempts",
+          "signal",
+          "includeSchemaInPrompt",
+        ]) {
+          expect(nativeConfig).not.toHaveProperty(option);
+        }
+        expect(nativeConfig.tools).toBeUndefined();
+        const request = mockRespond.mock.calls[0][0];
+        expect(request.text).toContain("extract");
+        expect(request.text).toContain(JSON.stringify(schema));
+        expect(request.text).toContain("bare JSON");
+      }
+    );
+
+    it.each([
+      "not json",
+      '```json\n{"kind":"a","rows":[]}\n```',
+      'Here is {"kind":"a","rows":[]}',
+      '{"kind":"a","rows":[]} trailing',
+      '{"kind":"c","rows":[]}',
+      '{"kind":"a"}',
+      '{"kind":"a","rows":[],"extra":true}',
+      '{"kind":"a","rows":[{}]}',
+      '{"kind":"a","rows":[{"value":"2"}]}',
+      '{"kind":"a","rows":[{"value":2,"extra":0}]}',
+      '{"kind":"a","rows":[{"value":1.5}]}',
+      '{"kind":"a","rows":[null]}',
+      "[]",
+      "null",
+    ])("repairs only strict JSON/schema failures: %s", async (invalid) => {
+      mockRespond.mockResolvedValueOnce(invalid).mockResolvedValueOnce(output);
+      await expect(generateObject("extract", config)).resolves.toEqual(valid);
+      expect(mockSessionConstructor).toHaveBeenCalledTimes(2);
+      const repair = mockRespond.mock.calls[1][0].text;
+      expect(repair).toContain("extract");
+      expect(repair).toContain(JSON.stringify(schema));
+      expect(repair).toContain(invalid);
+      expect(repair).toContain("Validation errors:");
+    });
+
+    it.each([0, 1] as const)(
+      "bounds additional repair attempts to %s",
+      async (repairAttempts) => {
+        mockRespond.mockResolvedValue("{}");
+        await expect(
+          generateObject("extract", { ...config, repairAttempts })
+        ).rejects.toBeInstanceOf(StructuredOutputValidationError);
+        expect(mockRespond).toHaveBeenCalledTimes(repairAttempts + 1);
+      }
+    );
+
+    it.each([
+      "ERR_REFUSAL",
+      "ERR_GUARDRAIL_VIOLATION",
+      "ERR_RATE_LIMITED",
+      "ERR_MODEL_UNAVAILABLE",
+      "ERR_CONTEXT_WINDOW_EXCEEDED",
+      "ERR_GENERATION_FAILED",
+      "ERR_TIMEOUT",
+      "ERR_DECODING_FAILED",
+    ])("propagates %s without repair", async (code) => {
+      const error = Object.assign(new Error("native query failed"), { code });
+      mockRespond.mockRejectedValueOnce(error);
+      await expect(generateObject("extract", config)).rejects.toBe(error);
+      expect(mockRespond).toHaveBeenCalledTimes(1);
+    });
+
+    it("propagates a failed repair query without a third attempt", async () => {
+      const error = new Error("repair query failed");
+      mockRespond.mockResolvedValueOnce("{}").mockRejectedValueOnce(error);
+      await expect(generateObject("extract", config)).rejects.toBe(error);
+      expect(mockRespond).toHaveBeenCalledTimes(2);
+    });
+
+    it("keeps explicit constrained mode native and never falls back", async () => {
+      const error = new LocalLLMError(
+        "ERR_DECODING_FAILED",
+        "native decoding failed"
+      );
+      mockRespond.mockRejectedValueOnce(error);
+      await expect(
+        generateObject("extract", { mode: "constrained", schema })
+      ).rejects.toBe(error);
+      expect(mockSessionConstructor).toHaveBeenCalledTimes(1);
+      expect(mockSessionConstructor).toHaveBeenCalledWith({
+        schema,
+        responseFormat: "json",
+        tools: undefined,
+      });
+      expect(mockRespond).toHaveBeenCalledWith("extract");
+    });
+
+    it("does not reinterpret a native rejection as a local validation failure", async () => {
+      const error = new StructuredOutputValidationError([]);
+      mockRespond.mockRejectedValueOnce(error);
+      await expect(generateObject("extract", config)).rejects.toBe(error);
+      expect(mockRespond).toHaveBeenCalledTimes(1);
+    });
+
+    it("propagates synchronous construction and respond failures", async () => {
+      const error = new Error("native construction failed");
+      mockSessionConstructor.mockImplementationOnce(() => {
+        throw error;
+      });
+      await expect(generateObject("extract", config)).rejects.toBe(error);
+      expect(mockRespond).not.toHaveBeenCalled();
+      expect(mockRelease).not.toHaveBeenCalled();
+      mockRespond.mockImplementationOnce(() => {
+        throw error;
+      });
+      await expect(generateObject("extract", config)).rejects.toBe(error);
+      expect(mockRespond).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(["web", "windows", "old-ios"])(
+      "rejects unsupported integration %s before construction",
+      async (platform) => {
+        mockPlatform.OS = platform === "old-ios" ? "ios" : platform;
+        mockPlatform.Version = 25;
+        await expect(generateObject("extract", config)).rejects.toMatchObject({
+          code: "ERR_RESPONSE_FORMAT_NOT_SUPPORTED",
+        });
+        expect(mockSessionConstructor).not.toHaveBeenCalled();
+      }
+    );
+
+    it("reports an unavailable native module in validated mode", async () => {
+      let result: Promise<unknown> | undefined;
+      jest.isolateModules(() => {
+        require("expo-modules-core").requireNativeModule.mockImplementationOnce(
+          () => {
+            throw new Error("missing module");
+          }
+        );
+        result = require("../index").generateObject("extract", config);
+      });
+      await expect(result).rejects.toMatchObject({
+        name: "NativeModuleUnavailableError",
+      });
+      expect(mockSessionConstructor).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { mode: "unknown" },
+      { mode: null },
+      { repairAttempts: -1 },
+      { repairAttempts: 2 },
+      { repairAttempts: 0.5 },
+      { repairAttempts: "1" },
+      { repairAttempts: null },
+      { signal: {} },
+      { signal: null },
+      { mode: "constrained", repairAttempts: 0 },
+      { mode: "constrained", signal: new AbortController().signal },
+      { tools: [] },
+      { mode: "constrained", tools: [] },
+      { tools: null },
+      { tools: [{ name: "lookup", handler: () => "no" }] },
+    ])(
+      "rejects invalid runtime options before construction: %j",
+      async (override) => {
+        // SAFETY: deliberately bypass the static API to exercise runtime JS callers.
+        const invalid = { ...config, ...override } as GenerateObjectConfig<
+          typeof schema
+        >;
+        await expect(generateObject("extract", invalid)).rejects.toMatchObject({
+          code: "ERR_UNSUPPORTED_REQUEST",
+        });
+        expect(mockSessionConstructor).not.toHaveBeenCalled();
+      }
+    );
+
+    it.each([
+      {},
+      { value: { type: "bad" } },
+      { value: { type: "array" } },
+      { value: { type: "string", enum: [] } },
+      { value: null },
+      [{ type: "string" }],
+      { value: { type: "object", properties: [{ type: "string" }] } },
+      { value: Object.assign([], { type: "string" }) },
+      { value: { type: "string", enum: "a" } },
+    ])("validates runtime schemas before construction: %j", async (invalid) => {
+      // SAFETY: deliberately malformed JS input, tested through the public boundary.
+      const invalidSchema = invalid as Schema;
+      await expect(
+        generateObject("extract", { ...config, schema: invalidSchema })
+      ).rejects.toMatchObject({ code: "ERR_SCHEMA_INVALID" });
+      expect(mockSessionConstructor).not.toHaveBeenCalled();
+    });
+
+    it("copies enum values without invoking caller-owned slice", async () => {
+      const values = ["a"];
+      values.slice = jest.fn(() => values);
+      const pending = pendingResponse();
+      mockRespond.mockReturnValueOnce(pending.promise);
+      const result = generateObject("extract", {
+        mode: "validated",
+        repairAttempts: 0,
+        schema: { value: { type: "string", enum: values } },
+      });
+      expect(mockRespond.mock.calls[0][0].text).toContain('"enum":["a"]');
+      values[0] = "b";
+      pending.resolve('{"value":"b"}');
+      await expect(result).rejects.toBeInstanceOf(
+        StructuredOutputValidationError
+      );
+      expect(values.slice).not.toHaveBeenCalled();
+    });
+
+    it("copies enum subclasses into ordinary arrays without species or serialization hooks", async () => {
+      class EnumValues extends Array<string> {
+        static get [Symbol.species](): never {
+          throw new Error("Must not invoke enum species");
+        }
+        toJSON() {
+          return ["b"];
+        }
+      }
+      const values = new EnumValues("a");
+      const pending = pendingResponse();
+      mockRespond.mockReturnValueOnce(pending.promise);
+      const result = generateObject("extract", {
+        mode: "validated",
+        schema: { value: { type: "string", enum: values } },
+      });
+      expect(mockRespond.mock.calls[0][0].text).toContain('"enum":["a"]');
+      values[0] = "b";
+      pending.resolve('{"value":"a"}');
+      await expect(result).resolves.toEqual({ value: "a" });
+      expect(mockRespond).toHaveBeenCalledTimes(1);
+    });
+
+    it("rejects cyclic, deep, large and unserializable schemas before construction", async () => {
+      const cyclic: Schema = {};
+      cyclic.self = { type: "object", properties: cyclic };
+      let deep: SchemaField = { type: "string" };
+      for (let i = 0; i < 17; i++) deep = { type: "array", items: deep };
+      const unserializable = {
+        answer: { type: "string" },
+        toJSON() {
+          throw new Error("cannot serialize");
+        },
+      };
+      for (const invalid of [
+        cyclic,
+        { deep },
+        { value: { type: "string", description: "x".repeat(16_384) } },
+        unserializable,
+        {
+          value: {
+            type: "string",
+            toJSON() {
+              return { type: "number" };
+            },
+          },
+        },
+      ]) {
+        // SAFETY: intentional malformed runtime input; the helper must reject it.
+        await expect(
+          generateObject("extract", { ...config, schema: invalid as Schema })
+        ).rejects.toBeInstanceOf(SchemaInvalidError);
+      }
+      expect(mockSessionConstructor).not.toHaveBeenCalled();
+    });
+
+    it("snapshots original task, schema, images, model and options across repair", async () => {
+      mockPlatform.OS = "android";
+      mockNativeModule.getToolCallingVersion.mockReturnValue(1);
+      const pending = pendingResponse();
+      mockRespond
+        .mockReturnValueOnce(pending.promise)
+        .mockResolvedValueOnce(output);
+      const photo = { uri: "file:///original.jpg", label: "photo" };
+      const prompt = { text: "original task", images: [photo] };
+      const mutableSchema: Schema = {
+        ...schema,
+        kind: { type: "string", enum: ["a", "b"] },
+      };
+      const mutableConfig = {
+        mode: "validated",
+        schema: mutableSchema,
+        androidModel: "previewFast",
+        instructions: "original instructions",
+        options: { temperature: 0.2, maxTokens: 1024, topK: 4 },
+        responseFormat: "json",
+        includeSchemaInPrompt: false,
+      } as const;
+      const result = generateObject(prompt, mutableConfig);
+      prompt.text = "mutated task";
+      photo.uri = "file:///mutated.jpg";
+      photo.label = "mutated label";
+      prompt.images.push({ uri: "file:///new.jpg", label: "new" });
+      mutableSchema.kind = { type: "boolean" };
+      mutableSchema.rows = { type: "number" };
+      Object.assign(mutableConfig, {
+        instructions: "mutated instructions",
+        androidModel: "default",
+        repairAttempts: 0,
+      });
+      Object.assign(mutableConfig.options, {
+        temperature: 1,
+        maxTokens: 1,
+        topK: 1,
+      });
+      pending.resolve("not json");
+      await expect(result).resolves.toEqual(valid);
+      expect(mockRespond).toHaveBeenCalledTimes(2);
+      for (const [request] of mockRespond.mock.calls) {
+        expect(request.text).toContain("original task");
+        expect(request.text).toContain(JSON.stringify(schema));
+        expect(request.text).not.toContain("mutated");
+        expect(request.images).toEqual([
+          { uri: "file:///original.jpg", label: "photo" },
+        ]);
+      }
+      for (const [nativeConfig] of mockSessionConstructor.mock.calls) {
+        expect(nativeConfig).toEqual({
+          androidModel: "previewFast",
+          instructions: "original instructions",
+          options: { temperature: 0.2, maxTokens: 1024, topK: 4 },
+          responseFormat: "text",
+          tools: undefined,
+        });
+      }
+    });
+
+    it("keeps a pending response's original nested schema and enum", async () => {
+      const pending = pendingResponse();
+      mockRespond.mockReturnValueOnce(pending.promise);
+      const enums = ["a", "b"];
+      const nested = { value: { type: "integer" } } as const;
+      const mutableSchema = {
+        kind: { type: "string", enum: enums },
+        rows: { type: "array", items: { type: "object", properties: nested } },
+      } as const;
+      const result = generateObject("extract", {
+        mode: "validated",
+        schema: mutableSchema,
+      });
+      enums.splice(0, 2, "c");
+      Object.assign(nested.value, { type: "boolean" });
+      pending.resolve(output);
+      await expect(result).resolves.toEqual(valid);
+      expect(mockRespond).toHaveBeenCalledTimes(1);
+    });
+
+    it("bounds input and output without repair or truncation", async () => {
+      await expect(
+        generateObject("x".repeat(65_536), config)
+      ).rejects.toMatchObject({ code: "ERR_UNSUPPORTED_REQUEST" });
+      expect(mockSessionConstructor).not.toHaveBeenCalled();
+      mockRespond.mockResolvedValueOnce("x".repeat(65_537));
+      await expect(generateObject("extract", config)).rejects.toMatchObject({
+        code: "ERR_UNSUPPORTED_REQUEST",
+      });
+      expect(mockRespond).toHaveBeenCalledTimes(1);
+    });
+
+    it("rejects oversized repair context before starting another session", async () => {
+      mockRespond.mockResolvedValueOnce("x".repeat(40_000));
+      await expect(
+        generateObject("x".repeat(30_000), config)
+      ).rejects.toMatchObject({ code: "ERR_UNSUPPORTED_REQUEST" });
+      expect(mockRespond).toHaveBeenCalledTimes(1);
+    });
+
+    it("does no native work when already aborted", async () => {
+      const controller = new AbortController();
+      controller.abort();
+      await expect(
+        generateObject("extract", { ...config, signal: controller.signal })
+      ).rejects.toMatchObject({ name: "AbortError" });
+      expect(mockSessionConstructor).not.toHaveBeenCalled();
+      expect(mockNativeModule.getAvailability).not.toHaveBeenCalled();
+    });
+
+    it.each(["resolve", "reject"] as const)(
+      "promptly aborts and observes late native %s",
+      async (settle) => {
+        const controller = new AbortController();
+        const add = jest.spyOn(controller.signal, "addEventListener");
+        const remove = jest.spyOn(controller.signal, "removeEventListener");
+        const pending = pendingResponse();
+        mockRespond.mockReturnValueOnce(pending.promise);
+        const result = generateObject("extract", {
+          ...config,
+          signal: controller.signal,
+        });
+        controller.abort();
+        await expect(result).rejects.toMatchObject({ name: "AbortError" });
+        expect(mockRelease).toHaveBeenCalledTimes(1);
+        expect(remove).toHaveBeenCalledWith("abort", add.mock.calls[0]?.[1]);
+        if (settle === "resolve") pending.resolve("{}");
+        else pending.reject(new Error("late native failure"));
+        await Promise.resolve();
+        expect(mockRespond).toHaveBeenCalledTimes(1);
+        expect(mockRelease).toHaveBeenCalledTimes(1);
+      }
+    );
+
+    it("honors abort after native resolution but before JS validation", async () => {
+      const controller = new AbortController();
+      const pending = pendingResponse();
+      mockRespond.mockReturnValueOnce(pending.promise);
+      const result = generateObject("extract", {
+        ...config,
+        signal: controller.signal,
+      });
+      pending.resolve(output);
+      controller.abort();
+      await expect(result).rejects.toMatchObject({ name: "AbortError" });
+      expect(mockRespond).toHaveBeenCalledTimes(1);
+    });
+
+    it("cleans up listeners after success and native failure", async () => {
+      const controller = new AbortController();
+      const add = jest.spyOn(controller.signal, "addEventListener");
+      const remove = jest.spyOn(controller.signal, "removeEventListener");
+      mockRespond
+        .mockResolvedValueOnce(output)
+        .mockRejectedValueOnce(new Error("failure"));
+      await generateObject("extract", { ...config, signal: controller.signal });
+      await expect(
+        generateObject("extract", { ...config, signal: controller.signal })
+      ).rejects.toThrow("failure");
+      expect(remove).toHaveBeenCalledTimes(2);
+      for (const [, listener] of add.mock.calls)
+        expect(remove).toHaveBeenCalledWith("abort", listener);
+      controller.abort();
+      expect(mockRelease).toHaveBeenCalledTimes(2);
+    });
+
+    it("handles synchronous abort during construction without responding", async () => {
+      const controller = new AbortController();
+      mockSessionConstructor.mockImplementationOnce(() => controller.abort());
+      await expect(
+        generateObject("extract", { ...config, signal: controller.signal })
+      ).rejects.toMatchObject({ name: "AbortError" });
+      expect(mockRespond).not.toHaveBeenCalled();
+    });
+
+    it("handles synchronous abort inside respond and its late rejection", async () => {
+      const controller = new AbortController();
+      mockRespond.mockImplementationOnce(() => {
+        controller.abort();
+        return Promise.reject(new Error("native cancelled"));
+      });
+      await expect(
+        generateObject("extract", { ...config, signal: controller.signal })
+      ).rejects.toMatchObject({ name: "AbortError" });
+      expect(mockRespond).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not repair when cancellation arrives between attempts", async () => {
+      const controller = new AbortController();
+      mockRespond.mockResolvedValueOnce("{}");
+      mockRelease.mockImplementationOnce(() => controller.abort());
+      await expect(
+        generateObject("extract", { ...config, signal: controller.signal })
+      ).rejects.toMatchObject({ name: "AbortError" });
+      expect(mockRespond).toHaveBeenCalledTimes(1);
+    });
+
+    it("aborts the independent repair session without a third attempt", async () => {
+      const controller = new AbortController();
+      const repair = pendingResponse();
+      let repairStarted!: () => void;
+      const started = new Promise<void>((resolve) => {
+        repairStarted = resolve;
+      });
+      mockRespond.mockResolvedValueOnce("{}").mockImplementationOnce(() => {
+        repairStarted();
+        return repair.promise;
+      });
+      const result = generateObject("extract", {
+        ...config,
+        signal: controller.signal,
+      });
+      await started;
+      controller.abort();
+      await expect(result).rejects.toMatchObject({ name: "AbortError" });
+      repair.resolve(output);
+      await Promise.resolve();
+      expect(mockRespond).toHaveBeenCalledTimes(2);
+    });
   });
 
   it("codes JavaScript-side failures like native ones", async () => {

@@ -7,8 +7,11 @@ type Equal<Left, Right> = (<Value>() => Value extends Left ? 1 : 2) extends <
   : false;
 type Expect<Value extends true> = Value;
 
-async function verifyGenerateObjectInference() {
+async function verifyGenerateObjectInference(
+  mode: "constrained" | "validated"
+) {
   const result = await generateObject("extract", {
+    mode,
     schema: {
       mood: { type: "string", enum: ["happy", "sad"] },
       nested: {
@@ -44,6 +47,49 @@ async function verifyGenerateObjectInference() {
   const invalidRow: { count: number; missing: string } = result.nested.rows[0];
 
   return { moodIsExact, rowsAreExact, invalidMood, invalidCount, invalidRow };
+}
+
+async function verifyValidatedOptions() {
+  const controller = new AbortController();
+  const config = {
+    schema: { answer: { type: "string", enum: ["yes", "no"] } },
+  } as const;
+  const result = await generateObject("extract", {
+    ...config,
+    mode: "validated",
+    repairAttempts: 0,
+    signal: controller.signal,
+  });
+  type AnswerIsExact = Expect<Equal<typeof result.answer, "yes" | "no">>;
+  const answerIsExact: AnswerIsExact = true;
+  generateObject("extract", {
+    ...config,
+    mode: "validated",
+    repairAttempts: 1,
+  });
+  generateObject("extract", {
+    ...config,
+    mode: "validated",
+    // @ts-expect-error Repair is strictly bounded to zero or one additional attempt.
+    repairAttempts: 2,
+  });
+  // @ts-expect-error Cancellation is only supported for explicit validated mode.
+  generateObject("extract", { ...config, signal: controller.signal });
+  generateObject("extract", {
+    ...config,
+    mode: "constrained",
+    // @ts-expect-error Constrained failures must not silently enter repair.
+    repairAttempts: 1,
+  });
+  // @ts-expect-error One-shot helpers cannot service any tools, even an empty list.
+  generateObject("extract", { ...config, mode: "validated", tools: [] });
+  generateObject("extract", {
+    ...config,
+    mode: "validated",
+    // @ts-expect-error Native JSON configuration is not an option for this helper.
+    responseFormat: "json",
+  });
+  return answerIsExact;
 }
 
 function useHookInference() {
@@ -132,4 +178,9 @@ function useToolInference() {
   return config;
 }
 
-export { verifyGenerateObjectInference, useHookInference, useToolInference };
+export {
+  verifyGenerateObjectInference,
+  verifyValidatedOptions,
+  useHookInference,
+  useToolInference,
+};

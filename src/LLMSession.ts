@@ -21,6 +21,7 @@ import {
   validateSchema,
   SchemaInvalidError,
 } from "./validateSchema";
+import { generateValidatedObject } from "./validatedOutput";
 
 export class NativeModuleUnavailableError extends UnavailabilityError {
   constructor(operation: string) {
@@ -130,8 +131,41 @@ export async function generateObject<const Definition extends Schema>(
   prompt: LLMPrompt,
   config: GenerateObjectConfig<Definition>
 ): Promise<InferSchema<Definition>> {
+  if (config.tools !== undefined) {
+    throw new LocalLLMError(
+      "ERR_UNSUPPORTED_REQUEST",
+      "generateObject() does not support tools. Use useLocalLLM() instead."
+    );
+  }
+  const {
+    mode = "constrained",
+    repairAttempts,
+    signal,
+    ...nativeConfig
+  } = config;
+  if (
+    (mode !== "constrained" && mode !== "validated") ||
+    (repairAttempts !== undefined &&
+      repairAttempts !== 0 &&
+      repairAttempts !== 1) ||
+    (signal !== undefined && !(signal instanceof AbortSignal)) ||
+    (mode === "constrained" &&
+      (repairAttempts !== undefined || signal !== undefined))
+  ) {
+    throw new LocalLLMError(
+      "ERR_UNSUPPORTED_REQUEST",
+      "Invalid generateObject mode or validated-only options."
+    );
+  }
+  if (mode === "validated" && signal?.aborted) {
+    const error = new Error("Validated generation was aborted.");
+    error.name = "AbortError";
+    throw error;
+  }
   const capabilities = getCapabilities();
-  if (!capabilities.structuredOutput) {
+  if (
+    !(mode === "validated" ? capabilities.text : capabilities.structuredOutput)
+  ) {
     if (capabilities.status === "moduleUnavailable") {
       throw new NativeModuleUnavailableError("generateObject");
     }
@@ -141,8 +175,12 @@ export async function generateObject<const Definition extends Schema>(
     );
   }
 
+  if (mode === "validated") {
+    return generateValidatedObject(prompt, config, createLLMSession);
+  }
+
   const text = await generate(prompt, {
-    ...config,
+    ...nativeConfig,
     responseFormat: "json",
     schema: config.schema,
   });
