@@ -91,24 +91,34 @@ On Android, the SDK also depends on AICore configuration and device support. See
 
 ## Feature unsupported
 
-Use `getCapabilities()` before exposing platform-specific features. This library currently implements tools and constrained structured output on iOS only. Android rejects requests for those features explicitly.
+Separate integration support from readiness and selected-model features:
 
-Capability support is not a readiness check. An iOS backend can implement constrained JSON while the model itself is disabled or still preparing.
+- `getCapabilities()` reports the loaded integration. `tools` does not mean the selected model supports function calling, and `structuredOutput` describes native constrained decoding only.
+- `await getModelReadiness(androidModel)` reports model availability and tool support separately. Use the same `androidModel` value for readiness, downloads, and generation.
+- Images have a separate capability: iOS reports `supported` only for a ready vision-capable model in an iOS 27+/Xcode 27+ app. Android reports `unknown` when its image bridge and cached model readiness are available; that is not a guarantee of image understanding.
 
-Android support in this package is narrower than the latest upstream SDK: an upstream feature is not available through this library until its bridge and public contract implement it.
+Android 0.9.0 implements native tools. A ready selected model without function calling rejects with `ERR_TOOL_NOT_SUPPORTED`; an unready model rejects with `ERR_MODEL_UNAVAILABLE`. For preview access, explicitly select `previewFast` and meet the [preview requirements](tool-calling.md). Rebuild older native binaries after upgrading JavaScript.
+
+For Android structured extraction, use `generateObject(prompt, { mode: 'validated', schema })`. Default/constrained `generateObject()` and hook/session `responseFormat: 'json'` remain unsupported on Android. Validated mode uses text generation plus JS validation; it does not enable constrained decoding or hook JSON streaming.
+
+## Android Kotlin metadata error after upgrading
+
+Version 0.9.0 requires Kotlin 2.3.0+ for ML Kit Prompt beta5 and Schema alpha2, including text-only apps. In an Expo prebuild app, set `expo-build-properties`' Android `kotlinVersion` to `2.3.0` as shown in the [quick start](../README.md#quick-start). In a maintained native project, update the Kotlin Gradle plugin. Regenerate the native project as appropriate for your app and rebuild; changing JavaScript or suppressing metadata checks does not update the compiler.
 
 ## Request rejected or output invalid
 
 Branch on the error's code (`errorCode` from the hook, or `getLocalLLMErrorCode(error)`), not its message. Messages come from the OS and change between releases.
 
-- `ERR_CONTEXT_WINDOW_EXCEEDED`: the conversation is too long for the model. Call `reset()` or start a new session, optionally seeded with a summary. The library does not drop turns for you.
+- `ERR_CONTEXT_WINDOW_EXCEEDED`: the conversation is too long for the model. Call `reset()` or start a new session, optionally seeded with a summary. iOS does not trim history automatically. Android retains at most ten whole exchanges, but that cap does not guarantee the request fits the model context.
 - `ERR_GUARDRAIL_VIOLATION` and `ERR_REFUSAL`: the model's safety system blocked the request. Handle them as unsuccessful requests, not as successful empty results.
 - `ERR_RATE_LIMITED`: the system is throttling on-device generation, for example in the background or after heavy use. Retry later.
-- `ERR_STRUCTURED_OUTPUT_INVALID`: `generateObject()`, or the hook in JSON mode, checked the returned JSON against the schema and it did not match. The object cannot safely be used as the inferred result type.
+- `ERR_STRUCTURED_OUTPUT_INVALID`: returned JSON did not match the schema. In explicit validated mode, the optional repair attempt was disabled or unsuccessful; default constrained mode and iOS hook JSON mode do not repair output. The object cannot safely be used as the inferred result type.
 - A valid schema and valid JSON do not establish factual correctness. Validate application-specific requirements separately.
-- Tool arguments are decoded against the tool's `parameters` on iOS, so their types and enums match. Still validate values with meaning (ranges, identifiers) before using them to call application APIs.
+- iOS constrains tool arguments to `parameters`; Android validates the complete returned batch before dispatch. Still check ranges, identifiers, permissions, and other application requirements before executing a handler.
 
 ## Sessions and cancellation
+
+Explicit validated `generateObject()` accepts an `AbortSignal`. Cancellation rejects with `error.name === 'AbortError'` and no library error code. It releases the owned session and prevents repair or a late response from succeeding. This differs from hook/session stream cancellation, which resolves with partial text.
 
 Use one active generation per session. Keep separate sessions for separate conversations; model backends may still impose device-wide limits. Await the generation promise settling after cancellation before starting another request on the same session.
 
