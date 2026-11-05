@@ -19,7 +19,7 @@
           },
           "android": {
             "minSdkVersion": 26,
-            "kotlinVersion": "2.2.21"
+            "kotlinVersion": "2.3.0"
           }
         }
       ],

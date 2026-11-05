@@ -15,41 +15,46 @@ import kotlinx.coroutines.withContext
 class ExpoLocalLlmModule : Module() {
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-  private fun throwToolNotSupported(): Unit = throw ToolNotSupportedException()
-
   override fun definition() = ModuleDefinition {
     Name("ExpoLocalLlm")
 
     Events("downloadProgress", "availabilityChange")
 
     Function("getImagePromptVersion") { 1 }
+    Function("getToolCallingVersion") { 1 }
 
-    Function("getAvailability") {
-      val cached = LLMSession.getCachedAvailability()
+    Function("getAvailability") { androidModel: String? ->
+      val selection = AndroidModel.parse(androidModel)
+      val cached = LLMSession.getCachedAvailability(selection)
       // ML Kit's status API is suspend-only. Preserve the synchronous JS API
       // by returning the latest cache and refreshing it asynchronously.
       scope.launch(Dispatchers.Default) {
-        val refreshed = LLMSession.refreshAvailability()
+        val refreshed = LLMSession.refreshAvailability(selection)
         withContext(Dispatchers.Main.immediate) {
-          sendEvent("availabilityChange", mapOf("availability" to refreshed.value))
+          sendEvent("availabilityChange", mapOf("availability" to refreshed.value, "androidModel" to selection.value))
         }
       }
       cached.value
     }
 
-    AsyncFunction("downloadModel") Coroutine { ->
+    AsyncFunction("getModelReadiness") Coroutine { androidModel: String? ->
+      LLMSession.readiness(AndroidModel.parse(androidModel))
+    }
+
+    AsyncFunction("downloadModel") Coroutine { androidModel: String? ->
+      val selection = AndroidModel.parse(androidModel)
       // Immediately signal downloading state so UI can disable the download button
-      sendEvent("availabilityChange", mapOf("availability" to ModelAvailability.downloading.value))
+      sendEvent("availabilityChange", mapOf("availability" to ModelAvailability.downloading.value, "androidModel" to selection.value))
       try {
-        LLMSession.downloadModel { progress ->
-          sendEvent("downloadProgress", mapOf("progress" to progress))
+        LLMSession.downloadModel(selection) { progress ->
+          sendEvent("downloadProgress", mapOf("progress" to progress, "androidModel" to selection.value))
         }
       } finally {
         // A failed/cancelled download can still change the SDK's state. Always
         // refresh it rather than leaving consumers stuck at "downloading".
         withContext(NonCancellable) {
-          val newAvailability = LLMSession.refreshAvailability()
-          sendEvent("availabilityChange", mapOf("availability" to newAvailability.value))
+          val newAvailability = LLMSession.refreshAvailability(selection)
+          sendEvent("availabilityChange", mapOf("availability" to newAvailability.value, "androidModel" to selection.value))
         }
       }
     }
@@ -58,9 +63,6 @@ class ExpoLocalLlmModule : Module() {
       Constructor { config: SessionConfig ->
         if (config.responseFormat == "json") {
           throw ResponseFormatNotSupportedException()
-        }
-        if (!config.tools.isNullOrEmpty()) {
-          throw ToolNotSupportedException()
         }
         LLMSession(config)
       }
@@ -81,22 +83,10 @@ class ExpoLocalLlmModule : Module() {
         session.reset()
       }
 
-      // Tool calling stubs — not yet supported on Android
-      Function("registerTool") { _: LLMSession, _: ToolConfig ->
-        throwToolNotSupported()
-      }
-
-      Function("unregisterTool") { _: LLMSession, _: String ->
-        throwToolNotSupported()
-      }
-
-      Function("resolveToolCall") { _: LLMSession, _: String, _: String ->
-        throwToolNotSupported()
-      }
-
-      Function("rejectToolCall") { _: LLMSession, _: String, _: String ->
-        throwToolNotSupported()
-      }
+      Function("registerTool") { session: LLMSession, config: ToolConfig -> session.registerTool(config) }
+      Function("unregisterTool") { session: LLMSession, name: String -> session.unregisterTool(name) }
+      Function("resolveToolCall") { session: LLMSession, id: String, result: String -> session.resolveToolCall(id, result) }
+      Function("rejectToolCall") { session: LLMSession, id: String, error: String -> session.rejectToolCall(id, error) }
 
       Events("token", "streamComplete", "streamError", "toolCall")
     }

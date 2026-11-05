@@ -9,11 +9,11 @@
 
 Use system-provided models in Expo apps: Apple Foundation Models on iOS 26+ and Gemini Nano on Android. Generate text, stream it into a component, extract typed objects and call tools, with no API key.
 
-The full JavaScript API measures approximately **12.8 kB minified / 4.4 kB gzipped**, excluding external dependencies and native code.[^js-size]
+The full JavaScript API measures approximately **14.6 kB minified / 4.9 kB gzipped**, excluding external dependencies and native code.[^js-size]
 
 Inference stays on the device, with no cloud fallback. Once the model is ready, generation works offline; initial model provisioning or downloads may require network access and device storage. Tool handlers you write may also access the network.
 
-[^js-size]: Measured from the built package entry point with Bun 1.4.4: a minified browser-target ESM bundle, all public exports retained, packages external, and default `node:zlib` gzip compression. Sizes use decimal kB. This standalone JS measurement excludes Expo, React, React Native, native SDKs (including Android ML Kit), and model assets; it is not a Metro/Hermes or installed-app size measurement. Reproduce with `bun run build && bun run check:size`. CI enforces budgets of 13,000 minified bytes and 4,500 gzip bytes.
+[^js-size]: Measured from the built package entry point with Bun 1.4.4: a minified browser-target ESM bundle, all public exports retained, packages external, and default `node:zlib` gzip compression. Sizes use decimal kB. This standalone JS measurement excludes Expo, React, React Native, native SDKs (including Android ML Kit), and model assets; it is not a Metro/Hermes or installed-app size measurement. Reproduce with `bun run build && bun run check:size`. CI enforces budgets of 15,000 minified bytes and 5,000 gzip bytes.
 
 ## At a glance
 
@@ -22,7 +22,7 @@ Inference stays on the device, with no cloud fallback. Once the model is ready, 
 | Text generation and streaming | ✅ Verified on device | ⚠️ Experimental: builds and reports eligibility; generation not yet validated on Gemini Nano hardware |
 | Image prompts | iOS 27+, Xcode 27+, and a ready vision-capable system model | ⚠️ Experimental: up to eight local images per request; not yet validated on Gemini Nano hardware |
 | Structured output (typed, schema-constrained) | ✅ Constrained decoding, validated in JS | ❌ Rejected explicitly |
-| Tool calling (schema-constrained arguments) | ✅ | ❌ Rejected explicitly |
+| Tool calling (validated primitive arguments) | ✅ Schema-constrained | Experimental; selected model must advertise function calling |
 | Stable error codes | ✅ | ✅ |
 | Model download | Managed by the OS | `downloadModel()` with progress |
 
@@ -44,7 +44,7 @@ Set the deployment targets the module needs in `app.json`:
         "expo-build-properties",
         {
           "ios": { "deploymentTarget": "16.4" },
-            "android": { "minSdkVersion": 26, "kotlinVersion": "2.2.21" }
+            "android": { "minSdkVersion": 26, "kotlinVersion": "2.3.0" }
         }
       ]
     ]
@@ -86,7 +86,7 @@ export function Summary({ notes }: { notes: string }) {
 | | Requirement |
 |---|---|
 | iOS | iOS 26+ with Apple Intelligence enabled to generate. The module loads on iOS 16.4+ and reports `notEligible` below 26. The host project must target iOS 16.4+, and building needs Xcode 26.4 or newer. |
-| Android | `minSdkVersion` 26+ and Kotlin 2.2.21+ to compile ML Kit beta4. Generation needs a Gemini Nano–capable device; most Android phones, including most mid-range ones, report `notEligible`. |
+| Android | `minSdkVersion` 26+ and Kotlin 2.3.0+ to compile ML Kit beta5. Generation needs a Gemini Nano–capable device; most Android phones, including most mid-range ones, report `notEligible`. |
 | Expo SDK | 52+ peer range. The example app targets SDK 58 / React Native 0.88; the peer range is not a tested compatibility matrix. |
 
 A native development build is required, built locally or with EAS Build. Installing or upgrading the package needs a new binary; EAS Update cannot add native code. An iPhone simulator can run Foundation Models when the host Mac has Apple Intelligence enabled; latency and thermals still need real hardware.
@@ -197,7 +197,7 @@ Both platforms accept **up to eight images per request**, with a unique label fo
 
 iOS uses native Foundation Models image attachments and requires iOS 27+, an app built with Xcode 27+, and a ready system model that advertises vision support. Older OS versions, older builds, and models without vision reject image prompts with `ERR_IMAGE_NOT_SUPPORTED`; text prompts still work with the existing iOS 26 / Xcode 26.4 minimum. The framework handles image scaling and orientation. Completed image turns remain in the native session transcript until `reset()` or release.
 
-Android remains experimental. Multiple images use ML Kit `1.0.0-beta4`, requiring Kotlin 2.2.21+ in the host app. The module also supplies coroutines 1.11.0 for the SDK's runtime ABI. Image decoding runs off the main thread, limits each image's long edge to 2048 pixels, and applies EXIF orientation. Before SDK submission, failed or cancelled requests recycle all decoded bitmaps. After submission, garbage collection reclaims them when all references are gone: ML Kit's bitmap-preparation worker can outlive cancellation of the coroutine awaiting it. On Android, images belong only to the current request: conversation history retains the text and response, so attach the images again for a visual follow-up.
+Android remains experimental. Multiple images use ML Kit `1.0.0-beta5`, requiring Kotlin 2.3.0+ in the host app. The module also supplies coroutines 1.11.0 for the SDK's runtime ABI. Image decoding runs off the main thread, limits each image's long edge to 2048 pixels, and applies EXIF orientation. Before SDK submission, failed or cancelled requests recycle all decoded bitmaps. After submission, garbage collection reclaims them when all references are gone: ML Kit's bitmap-preparation worker can outlive cancellation of the coroutine awaiting it. On Android, images belong only to the current request: conversation history retains text and tool protocol only. Images stay available during internal tool follow-up turns, but attach them again for a new visual request.
 
 `getCapabilities().images` returns `'supported'` when the iOS integration, OS, and ready system model support vision. On Android it returns `'unknown'` when the native bridge implements the image-prompt protocol and the last cached model availability is `'available'`, because ML Kit cannot report whether that device's model understands images. It returns `'unsupported'` otherwise, including when newer JavaScript runs against an older native binary; rebuild the app to add native image support. The initial Android cache is `'unknown'`, so the first call may report images as `'unsupported'` even on an eligible device. On an Android bridge with image support, each call also starts an asynchronous availability refresh and emits `availabilityChange`; read capabilities again when the hook's `availability` changes. A ready text model does not guarantee image understanding: it may reject or ignore the image. Android image inference has not yet been validated on compatible hardware. Invalid image inputs fail with `ERR_IMAGE_INVALID`.
 
@@ -252,7 +252,12 @@ await streamResponse?.('Give me a pasta recipe');
 
 Schemas are validated before they reach native code; a malformed one throws `SchemaInvalidError` with per-field paths. Call `validateSchema()` yourself when building schemas at runtime.
 
-### Tool calling (iOS)
+### Tool calling
+
+The existing tool API also works on Android builds with native tool calling version 1. Android is experimental and checks the selected model's status and `FUNCTION_CALLING` feature before sending a tool request. Google's current [function-calling preview](https://developers.google.com/ml-kit/genai/prompt/android/function-calling) requires eligible hardware and an account enrolled in the AICore Developer Preview, with Gemini Nano 4 Fast available. There is no automatic model selection or fallback.
+
+For Android preview access, pass `androidModel: 'previewFast'` to the hook/session and check `await getModelReadiness('previewFast')`. Default selection stays STABLE + FULL; previewFast explicitly selects PREVIEW + FAST. iOS ignores this option. The hook uses the same selection for readiness, downloads, and availability events.
+
 
 ```tsx
 import { Text, View } from 'react-native';
@@ -293,7 +298,19 @@ function WeatherChat() {
 
 `defineTool()` infers the handler's argument types from `parameters`; it returns the tool unchanged. Tools written inline in `tools` still work, with arguments typed as `Record<string, string | number | boolean>`.
 
-Tool arguments use the same constrained decoding as structured output: the model fills in a schema built from `parameters`, so every declared parameter arrives with its declared type and any `enum` is respected. Validate values whose meaning matters (ranges, formats) as you would any input. If a handler throws or times out, the turn rejects with `ERR_TOOL_FAILED`.
+On iOS, tool arguments use the same constrained decoding as structured output: the model fills in a schema built from `parameters`, so every declared parameter arrives with its declared type and any `enum` is respected. Validate values whose meaning matters (ranges, formats) as you would any input. If a handler throws or times out, the turn rejects with `ERR_TOOL_FAILED`.
+
+Android validates every declaration and the entire returned batch before the first handler event. Every declared parameter is required; only strings (including string enums), booleans, and numbers are accepted. Missing/extra keys, nulls, nested values, nonfinite numbers, unsafe 64-bit integers, and unknown tool names fail the turn. Android tool and parameter names must match `[A-Za-z_][A-Za-z0-9_]{0,63}`. Application-specific ranges and permissions still belong in your handler.
+
+Non-null SDK call IDs must be unique across the entire generation. A repeated ID rejects the whole batch before any of its handlers execute. Calls without SDK IDs remain supported; the library cannot infer whether two calls with different or missing IDs represent the same intended action.
+
+Before inference, a selected model that needs downloading or is otherwise unavailable fails with `ERR_MODEL_UNAVAILABLE`. Confirmed absence of function calling on a ready model fails with `ERR_TOOL_NOT_SUPPORTED`. Readiness query failures retain normal SDK error mapping (for example, `ERR_RATE_LIMITED` or `ERR_GENERATION_FAILED`).
+
+Android executes calls sequentially with one outer request ID, at most **8 tool-bearing rounds** and **32 calls** per generation, and **65,536 UTF-8 bytes per result**. The default handler timeout is **30 seconds**, configurable with a finite positive `toolTimeout`. Handler rejection, timeout, invalid model calls, truncated tool turns, or limit violations end the generation with `ERR_TOOL_FAILED`; handlers are never automatically retried. Results remain opaque strings wrapped as `{ result: value }` in native function responses.
+
+Streaming tools use ML Kit's callback API and execute only the validated complete terminal batch. Text accumulates across rounds with one outer `streamComplete`. Cancellation returns accumulated text without committing history or emitting completion. Reset, release, and tool registration changes cancel pending work; await the old generation before starting another. `registerTool()` and `unregisterTool()` preserve committed history; changing hook configuration creates a new session. Android retains at most ten whole exchanges, including each exchange's model calls and user results, so trimming cannot orphan tool protocol.
+
+
 
 ### Handle errors
 
@@ -369,6 +386,12 @@ Returns `platform`, `backend`, `status`, boolean `text`/`streaming`/`tools`/`str
 
 Capability `status` is `'available'`, `'moduleUnavailable'`, `'unsupportedOS'`, or `'unsupportedPlatform'`. Here `'available'` means the integration is supported; use the hook's `availability` for current model readiness.
 
+### `getModelReadiness(androidModel?: AndroidModel)`
+
+Returns a promise of `{ availability, tools: 'available' | 'unavailable' | 'unknown' }`. Android queries `checkStatus()` and `getAvailableFeatures()` on the selected client; query failures are `unknown`. Feature support and model availability are separate: a downloadable model may advertise tools but cannot yet generate. The hook's readiness/download paths follow its `androidModel` option, and Android module events include `androidModel`. Direct module `getAvailability(androidModel?)` and `downloadModel(androidModel?)` accept the same selection.
+
+`getCapabilities().tools` reports integration support, not device readiness. Older Android binaries without `getToolCallingVersion() === 1` report no tool support. Explicit preview selection fails clearly on those binaries instead of querying or downloading the default model. Rebuild after upgrading native code; an OTA JS update cannot add this support.
+
 ### `getModuleDiagnostics()`
 
 Reports whether native code loaded, with `available`, `reason`, `message`, and `setupInstructions`. A missing module is a build/setup problem, distinct from a device that cannot run the model.
@@ -392,7 +415,8 @@ if (!diagnostics.available) {
 | `options.temperature` | `number` | Sampling temperature |
 | `options.maxTokens` | `number` | Max output tokens (`maxOutputTokens` on Android; `maximumResponseTokens` on iOS). Native SDK/model limits apply. |
 | `options.topK` | `number` | Top-K sampling (maps to `.random(top:)` on iOS) |
-| `tools` | `ToolDefinition[]` | Tools the model can invoke (iOS 26+ only) |
+| `tools` | `ToolDefinition[]` | Tools the model can invoke (iOS 26+; Android native version 1 and eligible selected model) |
+| `androidModel` | `'default' \| 'previewFast'` | Explicit Android model selection; ignored on iOS |
 | `toolTimeout` | `number` | Seconds before an unresolved tool call times out (default 30) |
 | `responseFormat` | `"text" \| "json"` | Set to `"json"` for structured JSON output; requires `schema` |
 | `schema` | `Schema` | Schema for structured output (used with `responseFormat: "json"`); see [Structured output in the hook](#structured-output-in-the-hook) |
@@ -507,7 +531,7 @@ Android readiness is checked asynchronously and may initially be `unknown`. Pref
 - **Context window.** Neither platform trims history to fit the model's context; Android only caps it at 10 exchanges. iOS rejects with `ERR_CONTEXT_WINDOW_EXCEEDED`; call `reset()` or start a new session.
 - **One generation per session.** Overlapping requests reject with `ERR_SESSION_BUSY`. After cancelling, await the original promise before starting another request. Use separate sessions for independent conversations; events belong to their session.
 - **Guardrails.** Apple's model refuses some categories of prompt, such as interpreting personal health data. A refusal arrives as `ERR_GUARDRAIL_VIOLATION` or `ERR_REFUSAL`.
-- **Android is experimental.** The Gemini Nano SDK is in beta and its API may change. Structured output and tools are rejected at session creation.
+- **Android is experimental.** The Gemini Nano SDK is in beta and its API may change. Tools require selected-model feature support. `responseFormat: 'json'` and `generateObject()` remain unsupported: the SDK only accepts compiled Kotlin types for constrained output, with no public runtime-schema entrypoint for arbitrary JS schemas. Tools do not emulate structured output.
 - **Readiness gates generation.** `respond` and `streamResponse` need a session and `availability === 'available'`; cancelling and resetting work whenever a session exists.
 
 ## How this library is verified

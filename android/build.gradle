@@ -34,10 +34,10 @@ android {
 }
 
 dependencies {
-  // beta4 provides multipart Content, which is required for multiple images. Its
-  // metadata requires Kotlin 2.2.21 or newer in the consuming application.
-  implementation 'com.google.mlkit:genai-prompt:1.0.0-beta4'
-  // beta4 calls the Job.cancel(message, cause) compatibility bridge that is
+  // Runtime tool declarations require beta5 and the schema API.
+  implementation 'com.google.mlkit:genai-prompt:1.0.0-beta5'
+  implementation 'com.google.mlkit:genai-schema:1.0.0-alpha2'
+  // ML Kit calls the Job.cancel(message, cause) compatibility bridge that is
   // only present in recent coroutines releases. Pin Android explicitly so an
   // application's older transitive version cannot cause a runtime ABI error.
   implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0'

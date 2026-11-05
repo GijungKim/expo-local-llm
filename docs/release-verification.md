@@ -9,7 +9,7 @@ Native compilation and device behavior are separate release criteria. A compile-
 - The SDK 58 example requires Xcode 26.4+ with the Foundation Models SDK. The deployment floor is iOS 16.4; inference requires eligible iOS 26+ hardware and Apple Intelligence enabled.
 - Building with Xcode 27 requires the UIKit scene lifecycle, which Expo SDK 58 adopts by default and SDK 57 enables with `ios.enableSceneSupport: true` (see the [Xcode 27 note](../README.md#xcode-27-requires-scene-support)). Without it UIKit stops the app at launch before JavaScript runs, which is a launch-time failure the compile-only native job cannot detect.
 - Apple Foundation Models can run in the iPhone simulator when the host Mac has Apple Intelligence enabled and ready. Physical hardware is still required for latency, memory, and thermal measurements.
-- Android requires `minSdkVersion` 26+ and Kotlin 2.2.21+ for ML Kit beta4, and remains experimental. Device eligibility must be checked at runtime; a device marketing name alone is not proof of SDK support.
+- Android requires `minSdkVersion` 26+ and Kotlin 2.3.0+ for ML Kit beta5 / Schema alpha2, and remains experimental. Device eligibility must be checked at runtime; a device marketing name alone is not proof of SDK support.
 
 ## Local checks
 
@@ -70,7 +70,7 @@ For each release, record the package commit, Expo SDK, native SDK/toolchain, dev
 | Unmount/release while generating | Pending | Pending |
 | Model download succeeds and recovers after failure | Not applicable | Pending |
 | Structured object passes nested schema validation | Verified on simulator and iPhone 15 Pro (object with string, array, and enum fields) | Unsupported, and rejection is clean: a clear error is surfaced and the app stays usable (verified on Galaxy A17) |
-| Tool success, rejection, timeout, and teardown | Success (constrained arguments) and rejection (`ERR_TOOL_FAILED`) verified by the model check on macOS 27. Timeout and teardown pending; the example UI exposes no tools | Unsupported; verify explicit rejection |
+| Tool success, rejection, timeout, and teardown | Success (constrained arguments) and rejection (`ERR_TOOL_FAILED`) verified by the model check on macOS 27. Timeout and teardown pending; the example UI exposes no tools | Pending — native tool loop implemented; selected-model feature support and real function calling need hardware verification |
 
 “Pending” is intentional: this document is a checklist, not fabricated device evidence. Complete the relevant rows before claiming a platform is device-verified.
 
@@ -94,3 +94,28 @@ The SDK 57 runs used the debug example app; the SDK 58 runs used Release builds,
 For task-quality measurements, keep a small fixed input set for classification and extraction. Report success rate and latency alongside the device/OS and prompt/schema versions. Do not treat syntactically valid JSON as evidence that the answer is semantically correct.
 
 Before publishing a release, check that its capability flags, README guarantees, and recorded device results agree. A new upstream SDK feature must be implemented and checked locally before it is exposed, and remain explicitly experimental until the relevant device checks pass.
+
+## Android native tools — 0.9.0 verification
+
+The default model remains STABLE + FULL. PREVIEW + FAST requires explicit `androidModel: 'previewFast'`; readiness, download, session creation, and module events must all use that selection. Verify eligible hardware and AICore Developer Preview enrollment before attempting native function calling. `getCapabilities().tools` is an integration-version gate; `getModelReadiness(selection)` reports model availability separately from `available | unavailable | unknown` tool support. Old binaries reject explicit preview rather than silently using default.
+
+Local compiler evidence (2026-11-05): a focused compile of runtime declarations, schemas, nullable-ID function responses, and `setTools` succeeds with Kotlin 2.3.0; Kotlin 2.2.21 rejects the artifacts' 2.4 metadata. No metadata-skip flags. The library keeps min SDK 26, compile SDK 35, and coroutines 1.11.0. The generated SDK 58 example and app config pin Kotlin 2.3.0. See [native check instructions](../tools/native-check/README.md#android-tool-calling-compiler-floor) for the local Debug, JVM, and R8 Release commands.
+
+Local verification of the 0.9.0 working tree based on `03ced783` (2026-11-05): 81 JS tests and 47 JVM tests passed. Typecheck, type-level tests, repository lint, typed lint, knip, package build, size check, and example checks with both tsrs and TypeScript passed. Typed lint retains two existing unbound-method warnings; the shared anti-slop checker reports the five existing `jest.mock` declarations in the two edited test files, with no new findings. Standalone JS is 14,582 bytes minified / 4,886 bytes gzipped; reviewed budgets are 15,000 / 5,000 bytes.
+
+Android autolinking, Kotlin compilation, and arm64-only Debug and R8 Release packaging passed on JDK 17. The final run forced `:app:createBundleReleaseJsAndAssets --rerun` and used local Gradle overrides `-Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=768m" --max-workers=2`; these overrides are not project settings. Release APK SHA-256: `d440d419bba502bb85b0f79ef49bc590168f946f482417ed69f169236e52e2d2`. No iOS build was run because Apple native sources are unchanged. SDK JVM test limitations are recorded in the native-check documentation.
+
+Pending on supported Android hardware (no tool inference, model download, or device mutation performed for this implementation):
+
+- Confirm default and preview readiness remain isolated, including service/query failures and download events; verify feature-gate rejection on a selected model without function calling.
+- Run respond and streaming with multiple tool rounds and multiple calls per batch. Confirm model text is preserved and exactly one terminal stream event occurs, without dispatching partial callback calls.
+- Verify handler success/rejection/timeout, immediate resolution, cancellation, reset, release, registration changes, and stale resolutions across a new request.
+- Exercise 8 tool-bearing rounds, 32 total calls, the default 30-second configurable timeout, and the 65,536 UTF-8 byte result limit; confirm failures carry `ERR_TOOL_FAILED` with no automatic handler retry.
+- Verify actual native MODEL call / USER result replay with null SDK IDs and opaque string results, atomic ten-exchange history trimming, and images available across internal tool turns but absent from persisted history.
+- Recheck text/image generation without tools and explicit JSON/generateObject rejection. Arbitrary runtime JS schemas cannot be passed to the SDK's compiled-Kotlin-type structured-output API.
+
+These checks remain pending regardless of successful APK compilation. Android stays experimental. Apple native files are unchanged by this implementation.
+
+After source review, four additional regression tests passed (51 JVM tests total): repeated non-null SDK IDs are rejected across rounds before any handler in the affected batch starts; distinct and null IDs remain supported. Generation readiness now distinguishes unavailable models from confirmed feature absence and preserves SDK query failures for normal error mapping. Cancellation propagates unchanged. The JVM suite exercises production helpers, not full `LLMSession` integration; the pending orchestration and image-request checks above remain open.
+
+Debug and R8 arm64 Release packaging passed again after these Kotlin fixes. The updated Release APK SHA-256 is `772a423a34bbb2979eaf7edae9199af703cd0d69a0adfab5e17491e3b5e14c91`. JavaScript was unchanged from the earlier verified bundle.

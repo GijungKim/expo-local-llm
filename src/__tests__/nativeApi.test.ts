@@ -6,6 +6,7 @@ import {
   getCapabilities,
   getLocalLLMErrorCode,
   getModuleDiagnostics,
+  getModelReadiness,
   LocalLLMError,
   SchemaInvalidError,
   StructuredOutputValidationError,
@@ -29,6 +30,8 @@ jest.mock("expo-modules-core", () => {
     getAvailability: jest.fn(() => "available"),
     supportsImages: jest.fn(() => false),
     getImagePromptVersion: jest.fn(() => 1),
+    getToolCallingVersion: jest.fn(() => 0),
+    getModelReadiness: jest.fn(),
     downloadModel: jest.fn(),
     addListener: jest.fn(() => ({ remove: jest.fn() })),
     LLMSession: MockNativeSession,
@@ -58,6 +61,64 @@ describe("native-present API", () => {
     mockNativeModule.getImagePromptVersion.mockReturnValue(1);
     mockPlatform.OS = "ios";
     mockPlatform.Version = 26;
+    mockNativeModule.getToolCallingVersion.mockReturnValue(0);
+  });
+
+  it("gates tools and explicit model selection on rebuilt Android binaries", async () => {
+    mockPlatform.OS = "android";
+    const tool = {
+      name: "lookup",
+      description: "Lookup",
+      parameters: {},
+      handler: async () => "ok",
+    };
+    expect(() => createLLMSession({ tools: [tool] })).toThrow(/native tool/i);
+    expect(() => createLLMSession({ androidModel: "previewFast" })).toThrow(
+      /rebuild/i
+    );
+    await expect(getModelReadiness("previewFast")).rejects.toMatchObject({
+      code: "ERR_UNSUPPORTED_REQUEST",
+    });
+    mockNativeModule.getToolCallingVersion.mockReturnValue(1);
+    expect(getCapabilities()).toMatchObject({
+      tools: true,
+      structuredOutput: false,
+      experimental: true,
+    });
+    createLLMSession({ androidModel: "previewFast", tools: [tool] });
+    expect(mockSessionConstructor).toHaveBeenLastCalledWith({
+      androidModel: "previewFast",
+      tools: [{ name: "lookup", description: "Lookup", parameters: {} }],
+    });
+  });
+
+  it("queries selected model readiness separately from integration support", async () => {
+    mockPlatform.OS = "android";
+    mockNativeModule.getToolCallingVersion.mockReturnValue(1);
+    mockNativeModule.getModelReadiness.mockResolvedValueOnce({
+      availability: "downloadRequired",
+      tools: "available",
+    });
+    await expect(getModelReadiness("previewFast")).resolves.toEqual({
+      availability: "downloadRequired",
+      tools: "available",
+    });
+    expect(mockNativeModule.getModelReadiness).toHaveBeenLastCalledWith(
+      "previewFast"
+    );
+    mockNativeModule.getModelReadiness.mockRejectedValueOnce(
+      new Error("service unavailable")
+    );
+    await expect(getModelReadiness("default")).resolves.toEqual({
+      availability: "unknown",
+      tools: "unknown",
+    });
+    mockPlatform.OS = "ios";
+    await expect(getModelReadiness("previewFast")).resolves.toEqual({
+      availability: "available",
+      tools: "available",
+    });
+    expect(mockNativeModule.getModelReadiness).toHaveBeenCalledTimes(2);
   });
 
   it("reports backend and platform-specific capabilities", () => {

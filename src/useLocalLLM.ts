@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 
 import type {
+  AndroidModel,
   DeepPartial,
   InferSchema,
   LocalLLMErrorCode,
@@ -19,7 +20,10 @@ import type {
 } from "./ExpoLocalLlm.types";
 import ExpoLocalLlmModule from "./ExpoLocalLlmModule";
 import { createLLMSession, LLMSession } from "./LLMSession";
-import { getModuleDiagnostics } from "./capabilities";
+import {
+  assertAndroidModelSupport,
+  getModuleDiagnostics,
+} from "./capabilities";
 import { LocalLLMError, getLocalLLMErrorCode } from "./errors";
 import { parseStructuredOutput } from "./validateSchema";
 
@@ -81,11 +85,19 @@ function createRequestId(): string {
   return `expo-local-llm-request-${requestSequence}`;
 }
 
-function readAvailability(): ModelAvailability {
+function queryAvailability(androidModel?: AndroidModel): ModelAvailability {
   if (!ExpoLocalLlmModule) return "moduleUnavailable";
+  assertAndroidModelSupport(androidModel);
+  const nativePlatform = require("react-native").Platform;
+  return nativePlatform.OS === "android" &&
+    ExpoLocalLlmModule.getToolCallingVersion?.() === 1
+    ? ExpoLocalLlmModule.getAvailability(androidModel)
+    : ExpoLocalLlmModule.getAvailability();
+}
+
+function readAvailability(androidModel?: AndroidModel): ModelAvailability {
   try {
-    // SAFETY: native implementations return the documented availability union.
-    return ExpoLocalLlmModule.getAvailability() as ModelAvailability;
+    return queryAvailability(androidModel);
   } catch {
     return "unknown";
   }
@@ -94,8 +106,19 @@ function readAvailability(): ModelAvailability {
 export function useLocalLLM<const Definition extends Schema = Schema>(
   options: UseLocalLLMOptions<Definition> = {}
 ): UseLocalLLMResult<Definition> {
-  const [availability, setAvailability] =
-    useState<ModelAvailability>(readAvailability);
+  const nativePlatform = require("react-native").Platform;
+  const androidModel =
+    nativePlatform.OS === "android"
+      ? options.androidModel ?? "default"
+      : "default";
+  const [modelAvailability, setModelAvailability] = useState(() => ({
+    model: androidModel,
+    availability: readAvailability(androidModel),
+  }));
+  const availability =
+    modelAvailability.model === androidModel
+      ? modelAvailability.availability
+      : "unknown";
   const [session, setSession] = useState<LLMSession | null>(null);
   const [creationError, setCreationError] = useState<HookError | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -158,6 +181,7 @@ export function useLocalLLM<const Definition extends Schema = Schema>(
   const stableConfig = useMemo(
     () => options,
     [
+      options.androidModel,
       options.instructions,
       options.options?.temperature,
       options.options?.maxTokens,
@@ -184,6 +208,7 @@ export function useLocalLLM<const Definition extends Schema = Schema>(
       sessionRef.current = nextSession;
       // eslint-disable-next-line react-hooks/set-state-in-effect -- The native session is an effect-owned external resource; publishing it synchronously after acquisition prevents consumers from observing a not-yet-created handle.
       setCreationError(null);
+      setDownloadProgress(null);
       setIsGenerating(false);
       setActiveToolCalls([]);
       setSession(nextSession);
@@ -214,25 +239,32 @@ export function useLocalLLM<const Definition extends Schema = Schema>(
 
     const subs: { remove(): void }[] = [];
     let disposed = false;
+    const setAvailability = (value: ModelAvailability) => {
+      setModelAvailability({ model: androidModel, availability: value });
+    };
 
     subs.push(
       nativeModule.addListener(
         "downloadProgress",
         (event: DownloadProgress) => {
-          setDownloadProgress(event.progress);
+          if (!disposed && (event.androidModel ?? "default") === androidModel) {
+            setDownloadProgress(event.progress);
+          }
         }
       )
     );
     subs.push(
       nativeModule.addListener("availabilityChange", (event) => {
-        setAvailability(event.availability);
+        if (!disposed && (event.androidModel ?? "default") === androidModel) {
+          setAvailability(event.availability);
+        }
       })
     );
 
     const refreshAvailability = () => {
+      if (disposed) return;
       try {
-        // SAFETY: native implementations return the documented availability union.
-        setAvailability(nativeModule.getAvailability() as ModelAvailability);
+        setAvailability(queryAvailability(androidModel));
       } catch (error: unknown) {
         setAvailability("unknown");
         setRuntimeError(
@@ -386,7 +418,7 @@ export function useLocalLLM<const Definition extends Schema = Schema>(
     // change together with a session recreation (responseFormat/schema are
     // in stableConfig), but depending on it directly removes the reliance
     // on that invariant.
-  }, [session, isJSONMode]);
+  }, [session, isJSONMode, androidModel]);
 
   const respond = useCallback(
     async (prompt: LLMPrompt): Promise<string> => {
@@ -541,8 +573,17 @@ export function useLocalLLM<const Definition extends Schema = Schema>(
 
   const downloadModel = useCallback(async (): Promise<void> => {
     if (!ExpoLocalLlmModule) return;
-    await ExpoLocalLlmModule.downloadModel();
-  }, []);
+    assertAndroidModelSupport(stableConfig.androidModel);
+    const nativePlatform = require("react-native").Platform;
+    if (
+      nativePlatform.OS === "android" &&
+      ExpoLocalLlmModule.getToolCallingVersion?.() === 1
+    ) {
+      await ExpoLocalLlmModule.downloadModel(stableConfig.androidModel);
+    } else {
+      await ExpoLocalLlmModule.downloadModel();
+    }
+  }, [stableConfig.androidModel]);
 
   if (!ExpoLocalLlmModule) {
     return {
