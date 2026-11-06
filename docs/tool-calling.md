@@ -4,7 +4,7 @@
 
 ## Model selection
 
-The existing tool API also works on Android builds with native tool calling version 1. Android is experimental and checks the selected model's status and `FUNCTION_CALLING` feature before sending a tool request. Google's current [function-calling preview](https://developers.google.com/ml-kit/genai/prompt/android/function-calling) requires eligible hardware and an account enrolled in the AICore Developer Preview, with Gemini Nano 4 Fast available. There is no automatic model selection or fallback.
+The existing tool API also works on Android builds with native tool calling version 1. Android checks the selected model's status and `FUNCTION_CALLING` feature before sending a tool request. Google's current [function-calling preview](https://developers.google.com/ml-kit/genai/prompt/android/function-calling) requires eligible hardware and an account enrolled in the AICore Developer Preview, with Gemini Nano 4 Fast available. There is no automatic model selection or fallback.
 
 For Android preview access, pass `androidModel: 'previewFast'` to the hook/session and check `await getModelReadiness('previewFast')`. Default selection stays STABLE + FULL; previewFast explicitly selects PREVIEW + FAST. iOS ignores this option. The hook uses the same selection for readiness, downloads, and availability events.
 

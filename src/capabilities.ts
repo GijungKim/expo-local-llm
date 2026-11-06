@@ -56,6 +56,7 @@ export function getCapabilities(): LocalLLMCapabilities {
       tools: false,
       structuredOutput: false,
       structuredOutputMode: "unsupported",
+      objectGenerationMode: "unsupported",
       experimental: false,
     };
   }
@@ -102,7 +103,12 @@ export function getCapabilities(): LocalLLMCapabilities {
       (isIOS || ExpoLocalLlmModule?.getToolCallingVersion?.() === 1),
     structuredOutput: supported && isIOS,
     structuredOutputMode: supported && isIOS ? "constrained" : "unsupported",
-    experimental: !isIOS,
+    objectGenerationMode: supported
+      ? isIOS
+        ? "constrained"
+        : "validated"
+      : "unsupported",
+    experimental: false,
   };
 }
 

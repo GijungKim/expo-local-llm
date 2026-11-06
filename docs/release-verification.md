@@ -112,7 +112,7 @@ Pending on supported Android hardware (no tool inference, model download, or dev
 - Verify handler success/rejection/timeout, immediate resolution, cancellation, reset, release, registration changes, and stale resolutions across a new request.
 - Exercise 8 tool-bearing rounds, 32 total calls, the default 30-second configurable timeout, and the 65,536 UTF-8 byte result limit; confirm failures carry `ERR_TOOL_FAILED` with no automatic handler retry.
 - Verify actual native MODEL call / USER result replay with null SDK IDs and opaque string results, atomic ten-exchange history trimming, and images available across internal tool turns but absent from persisted history.
-- Recheck text/image generation without tools and explicit native JSON/default-constrained `generateObject()` rejection. Arbitrary runtime JS schemas cannot be passed to the SDK's compiled-Kotlin-type structured-output API.
+- Recheck text/image generation without tools, automatic validated `generateObject()`, and explicit native JSON/constrained rejection. Arbitrary runtime JS schemas cannot be passed to the SDK's compiled-Kotlin-type structured-output API.
 
 These checks remain pending regardless of successful APK compilation. Android stays experimental. Apple native files are unchanged by this implementation.
 
@@ -151,3 +151,13 @@ Debug and R8-minified arm64 Release APK packaging passed with a freshly generate
 Remaining limits: eligible-device AICore behavior, actual downloads, model output quality, SDK bitmap use during inference cancellation, latency/memory/thermal performance, and the Expo JavaScript-to-native runtime transport are not established by these tests. Android remains experimental.
 
 Review follow-up: terminal tool-stream text is authoritative when callbacks diverge, including an empty final text; a corrective token event carries the replacement accumulated value. Regression tests cover multiple streaming tool rounds, cancellation while a handler is pending, and clearing stale readiness errors on generation/reset. The precise cancellation window between SDK return and reconciliation is guarded in source but not deterministically exercised by these tests. Connected ART tests were not rerun for this follow-up.
+
+## Automatic structured output — unreleased
+
+Default `generateObject()` calls now choose native constrained decoding on supported Apple integrations and validated text generation on Android. The Android path retains strict runtime schema validation and at most one repair request; native/provider failures do not trigger repair or switch paths. `getCapabilities().objectGenerationMode` reports the automatic selection, while the existing structured-output fields remain native-only. Explicit constrained and validated modes are unchanged. No native code or backend changed, and Gemini Nano inference remains pending on supported hardware.
+
+Local verification on 2026-11-05: all 169 JS tests passed, including automatic Android routing, repair, provider-failure, unsupported-platform, and missing-module cases. Source and type-fixture checks, lint, typed lint, knip, package build, and size check passed. Typed lint retains its two existing unbound-method warnings. The shared anti-slop checker reports only the four existing module mocks in the two edited test files. Standalone JS measures 17,990 bytes minified / 6,059 gzip bytes, within the existing 18,000 / 6,200 budgets.
+
+## 0.10.0 maturity designation
+
+The package now reports `experimental: false` for both integrations. This is a product maturity designation, not new hardware evidence. Earlier experimental labels above record the status at the time of those checks; pending Gemini Nano inference and device checks remain pending.

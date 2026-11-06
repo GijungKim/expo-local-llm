@@ -227,7 +227,13 @@ export type GenerateObjectConfig<Definition extends Schema> = Omit<
   /** One-shot helpers cannot service native tool-call events. */
   tools?: never;
 } & (
-    | { mode?: "constrained"; repairAttempts?: never; signal?: never }
+    | {
+        /** Selects native constraints when available, otherwise validated text generation. */
+        mode?: "auto";
+        repairAttempts?: never;
+        signal?: never;
+      }
+    | { mode: "constrained"; repairAttempts?: never; signal?: never }
     | {
         /** Text generation followed by JS validation, not constrained decoding. */
         mode: "validated";
@@ -274,12 +280,14 @@ export type LocalLLMCapabilities = {
   images: "supported" | "unknown" | "unsupported";
   /** Integration support. Use getModelReadiness() for selected-model readiness. */
   tools: boolean;
-  /** Native constrained output only. Explicit validated mode requires `text`. */
+  /** Native constrained output only. Validated and automatic fallback require `text`. */
   structuredOutput: boolean;
   structuredOutputMode: "constrained" | "unsupported";
+  /** Path selected by the default `generateObject()` mode. */
+  objectGenerationMode: "constrained" | "validated" | "unsupported";
   /**
-   * True where generation has not been verified on real hardware. Android is
-   * experimental until Gemini Nano generation is validated on a device.
+   * Integration maturity flag, not hardware-verification status.
+   * False for both supported integrations as of 0.10.0.
    */
   experimental: boolean;
 };

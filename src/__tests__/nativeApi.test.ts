@@ -95,7 +95,8 @@ describe("native-present API", () => {
     expect(getCapabilities()).toMatchObject({
       tools: true,
       structuredOutput: false,
-      experimental: true,
+      objectGenerationMode: "validated",
+      experimental: false,
     });
     createLLMSession({ androidModel: "previewFast", tools: [tool] });
     expect(mockSessionConstructor).toHaveBeenLastCalledWith({
@@ -150,6 +151,7 @@ describe("native-present API", () => {
       tools: true,
       structuredOutput: true,
       structuredOutputMode: "constrained",
+      objectGenerationMode: "constrained",
       experimental: false,
     });
 
@@ -163,7 +165,8 @@ describe("native-present API", () => {
       tools: false,
       structuredOutput: false,
       structuredOutputMode: "unsupported",
-      experimental: true,
+      objectGenerationMode: "validated",
+      experimental: false,
     });
 
     mockPlatform.OS = "ios";
@@ -177,6 +180,7 @@ describe("native-present API", () => {
       images: "unsupported",
       tools: false,
       structuredOutput: false,
+      objectGenerationMode: "unsupported",
     });
 
     mockPlatform.OS = "web";
@@ -190,6 +194,7 @@ describe("native-present API", () => {
       tools: false,
       structuredOutput: false,
       structuredOutputMode: "unsupported",
+      objectGenerationMode: "unsupported",
       experimental: false,
     });
   });
@@ -328,13 +333,54 @@ describe("native-present API", () => {
     expect(mockRelease).toHaveBeenCalledTimes(1);
   });
 
-  it("rejects structured output on Android before creating a session", async () => {
+  it.each([undefined, "auto"] as const)(
+    "automatically validates and repairs structured output on an Android bridge with mode %s",
+    async (mode) => {
+      mockPlatform.OS = "android";
+      mockRespond
+        .mockResolvedValueOnce("not json")
+        .mockResolvedValueOnce('{"answer":"yes"}');
+      const result = await generateObject("extract", {
+        ...(mode && { mode }),
+        schema: { answer: { type: "string" } },
+      });
+      expect(result).toEqual({ answer: "yes" });
+      expect(mockSessionConstructor).toHaveBeenCalledTimes(2);
+      expect(mockRelease).toHaveBeenCalledTimes(2);
+      expect(mockSessionConstructor).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ responseFormat: "text" })
+      );
+      expect(mockRespond.mock.calls[1][0].text).toContain(
+        "The previous response failed"
+      );
+    }
+  );
+
+  it("does not repair or reroute an Android provider failure in automatic mode", async () => {
     mockPlatform.OS = "android";
+    const error = new LocalLLMError(
+      "ERR_MODEL_UNAVAILABLE",
+      "model unavailable"
+    );
+    mockRespond.mockRejectedValueOnce(error);
     await expect(
       generateObject("extract", {
         schema: { answer: { type: "string" } },
       })
-    ).rejects.toThrow(/not supported on android/);
+    ).rejects.toBe(error);
+    expect(mockSessionConstructor).toHaveBeenCalledTimes(1);
+    expect(mockRespond).toHaveBeenCalledTimes(1);
+    expect(mockRelease).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects automatic output on an unsupported OS before construction", async () => {
+    mockPlatform.Version = 25;
+    await expect(
+      generateObject("extract", {
+        schema: { answer: { type: "string" } },
+      })
+    ).rejects.toMatchObject({ code: "ERR_RESPONSE_FORMAT_NOT_SUPPORTED" });
     expect(mockSessionConstructor).not.toHaveBeenCalled();
   });
 
@@ -473,6 +519,22 @@ describe("native-present API", () => {
       expect(mockRespond).toHaveBeenCalledWith("extract");
     });
 
+    it("keeps automatic iOS mode native and never falls back", async () => {
+      const error = new LocalLLMError(
+        "ERR_DECODING_FAILED",
+        "native decoding failed"
+      );
+      mockRespond.mockRejectedValueOnce(error);
+      await expect(generateObject("extract", { schema })).rejects.toBe(error);
+      expect(mockSessionConstructor).toHaveBeenCalledTimes(1);
+      expect(mockSessionConstructor).toHaveBeenCalledWith({
+        schema,
+        responseFormat: "json",
+        tools: undefined,
+      });
+      expect(mockRespond).toHaveBeenCalledTimes(1);
+    });
+
     it("does not reinterpret a native rejection as a local validation failure", async () => {
       const error = new StructuredOutputValidationError([]);
       mockRespond.mockRejectedValueOnce(error);
@@ -535,6 +597,8 @@ describe("native-present API", () => {
       { signal: null },
       { mode: "constrained", repairAttempts: 0 },
       { mode: "constrained", signal: new AbortController().signal },
+      { mode: "auto", repairAttempts: 0 },
+      { mode: "auto", signal: new AbortController().signal },
       { tools: [] },
       { mode: "constrained", tools: [] },
       { tools: null },
@@ -885,7 +949,10 @@ describe("native-present API", () => {
 
     mockPlatform.OS = "android";
     await expect(
-      generateObject("hello", { schema: { name: { type: "string" } } })
+      generateObject("hello", {
+        mode: "constrained",
+        schema: { name: { type: "string" } },
+      })
     ).rejects.toMatchObject({ code: "ERR_RESPONSE_FORMAT_NOT_SUPPORTED" });
 
     expect(() => createLLMSession({ responseFormat: "json" })).toThrow(

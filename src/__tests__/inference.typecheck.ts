@@ -8,7 +8,7 @@ type Equal<Left, Right> = (<Value>() => Value extends Left ? 1 : 2) extends <
 type Expect<Value extends true> = Value;
 
 async function verifyGenerateObjectInference(
-  mode: "constrained" | "validated"
+  mode: "auto" | "constrained" | "validated"
 ) {
   const result = await generateObject("extract", {
     mode,
@@ -75,6 +75,12 @@ async function verifyValidatedOptions() {
   });
   // @ts-expect-error Cancellation is only supported for explicit validated mode.
   generateObject("extract", { ...config, signal: controller.signal });
+  generateObject("extract", {
+    ...config,
+    mode: "auto",
+    // @ts-expect-error Auto selection cannot silently ignore validated-only options on iOS.
+    repairAttempts: 1,
+  });
   generateObject("extract", {
     ...config,
     mode: "constrained",
