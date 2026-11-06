@@ -9,7 +9,7 @@ Native compilation and device behavior are separate release criteria. A compile-
 - The SDK 58 example requires Xcode 26.4+ with the Foundation Models SDK. The deployment floor is iOS 16.4; inference requires eligible iOS 26+ hardware and Apple Intelligence enabled.
 - Building with Xcode 27 requires the UIKit scene lifecycle, which Expo SDK 58 adopts by default and SDK 57 enables with `ios.enableSceneSupport: true` (see the [Xcode 27 note](../README.md#xcode-27-requires-scene-support)). Without it UIKit stops the app at launch before JavaScript runs, which is a launch-time failure the compile-only native job cannot detect.
 - Apple Foundation Models can run in the iPhone simulator when the host Mac has Apple Intelligence enabled and ready. Physical hardware is still required for latency, memory, and thermal measurements.
-- Android requires `minSdkVersion` 26+ and Kotlin 2.3.0+ for ML Kit beta5 / Schema alpha2, and remains experimental. Device eligibility must be checked at runtime; a device marketing name alone is not proof of SDK support.
+- Android requires `minSdkVersion` 26+ and Kotlin 2.3.0+ for ML Kit beta5 / Schema alpha2, and device eligibility must be checked at runtime; a device marketing name alone is not proof of SDK support.
 
 ## Local checks
 
@@ -93,7 +93,7 @@ The SDK 57 runs used the debug example app; the SDK 58 runs used Release builds,
 
 For task-quality measurements, keep a small fixed input set for classification and extraction. Report success rate and latency alongside the device/OS and prompt/schema versions. Do not treat syntactically valid JSON as evidence that the answer is semantically correct.
 
-Before publishing a release, check that its capability flags, README guarantees, and recorded device results agree. A new upstream SDK feature must be implemented and checked locally before it is exposed, and remain explicitly experimental until the relevant device checks pass.
+Before publishing a release, check that its capability flags, README guarantees, and recorded device results agree. A new upstream SDK feature must be implemented and checked locally before it is exposed, and its verification status must accurately distinguish automated coverage from device checks.
 
 ## Android native tools — 0.9.0 verification
 
@@ -161,3 +161,7 @@ Local verification on 2026-11-05: all 169 JS tests passed, including automatic A
 ## 0.10.0 maturity designation
 
 The package now reports `experimental: false` for both integrations. This is a product maturity designation, not new hardware evidence. Earlier experimental labels above record the status at the time of those checks; pending Gemini Nano inference and device checks remain pending.
+
+## 0.10.0 release preflight — 2026-11-05
+
+Based on merged PR #83 (`5525dda`), with all four CI checks passing. Local lint, anti-slop rule tests, build-script tests, knip, all 169 JS tests, source/type-fixture checks, clean prepublish build, and bundle size passed. All four Apple system-model checks passed again. Packed artifact inventory excludes examples, test sources, and native build outputs; an isolated consumer installed the tarball with lifecycle scripts disabled and typechecked automatic generation, inferred enum values, and the new capability field. This does not establish Android inference or the JS automatic path on hardware.
