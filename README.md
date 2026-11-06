@@ -105,11 +105,11 @@ export function Summary({ notes }: { notes: string }) {
 
 The hook retains conversation history between requests. Use `reset()` for a new conversation or [`generate()`](#one-shot-generation) for independent tasks.
 
-### Upgrading to 0.9.0
+### Upgrading to 0.10.0
 
 All Android apps now require **Kotlin 2.3.0+**, including text-only apps; set `kotlinVersion` as shown above or update your native Kotlin Gradle plugin. Rebuild your iOS or Android app to include the new native image and tool APIs. An EAS Update alone cannot install them.
 
-In the published 0.9.0 release, existing string prompts and default iOS constrained output retain their behavior. Android structured extraction requires explicit `mode: 'validated'`; hook/session `responseFormat: 'json'` remains iOS-only. The unreleased automatic mode described below removes the explicit-mode requirement. See the [0.9.0 changelog](CHANGELOG.md#090--2026-11-05) for the full release.
+Version 0.10.0 makes `generateObject()` automatic: iOS uses native constraints and Android uses validation with bounded repair. Pass `mode: 'constrained'` to require native constraints. Capability objects now require `objectGenerationMode`, and `experimental` is `false` for both integrations; device verification is documented separately. Hook/session `responseFormat: 'json'` remains iOS-only. See the [changelog](CHANGELOG.md).
 
 ## Requirements
 

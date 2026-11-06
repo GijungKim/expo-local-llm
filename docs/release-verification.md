@@ -157,3 +157,7 @@ Review follow-up: terminal tool-stream text is authoritative when callbacks dive
 Default `generateObject()` calls now choose native constrained decoding on supported Apple integrations and validated text generation on Android. The Android path retains strict runtime schema validation and at most one repair request; native/provider failures do not trigger repair or switch paths. `getCapabilities().objectGenerationMode` reports the automatic selection, while the existing structured-output fields remain native-only. Explicit constrained and validated modes are unchanged. No native code or backend changed, and Gemini Nano inference remains pending on supported hardware.
 
 Local verification on 2026-11-05: all 169 JS tests passed, including automatic Android routing, repair, provider-failure, unsupported-platform, and missing-module cases. Source and type-fixture checks, lint, typed lint, knip, package build, and size check passed. Typed lint retains its two existing unbound-method warnings. The shared anti-slop checker reports only the four existing module mocks in the two edited test files. Standalone JS measures 17,990 bytes minified / 6,059 gzip bytes, within the existing 18,000 / 6,200 budgets.
+
+## 0.10.0 maturity designation
+
+The package now reports `experimental: false` for both integrations. This is a product maturity designation, not new hardware evidence. Earlier experimental labels above record the status at the time of those checks; pending Gemini Nano inference and device checks remain pending.

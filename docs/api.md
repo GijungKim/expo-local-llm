@@ -2,7 +2,7 @@
 
 [Back to the README](../README.md) · [Troubleshooting](troubleshooting.md)
 
-For runnable examples, start with [usage](../README.md#usage). This reference describes the 0.9.0 API.
+For runnable examples, start with [usage](../README.md#usage). This reference describes the 0.10.0 API.
 
 ## `getCapabilities()`
 
@@ -10,7 +10,7 @@ Reports which features the loaded platform integration implements. Use this to d
 
 The function does not download models, start inference, or opt the app into a cloud service.
 
-Returns `platform`, `backend`, `status`, boolean `text`/`streaming`/`tools`/`structuredOutput` flags, `images` (`'supported'` on a ready, vision-capable iOS backend, `'unknown'` when a current Android bridge's cached availability is `'available'`, `'unsupported'` otherwise), `structuredOutputMode` (`'constrained'` or `'unsupported'`), `objectGenerationMode` (`'constrained'`, `'validated'`, or `'unsupported'`), and `experimental`. `objectGenerationMode` is the path selected by default `generateObject()` calls; `structuredOutputMode` remains native-only. `experimental` is `true` on Android until Gemini Nano generation has been validated on real hardware; gate production features on it if you need verified behavior.
+Returns `platform`, `backend`, `status`, boolean `text`/`streaming`/`tools`/`structuredOutput` flags, `images` (`'supported'` on a ready, vision-capable iOS backend, `'unknown'` when a current Android bridge's cached availability is `'available'`, `'unsupported'` otherwise), `structuredOutputMode` (`'constrained'` or `'unsupported'`), `objectGenerationMode` (`'constrained'`, `'validated'`, or `'unsupported'`), and `experimental`. `objectGenerationMode` is the path selected by default `generateObject()` calls; `structuredOutputMode` remains native-only. `experimental` is an integration maturity flag, retained for compatibility, and is `false` on both platforms as of 0.10.0. It does not certify hardware verification; see the [verification record](release-verification.md) for device-test evidence.
 
 Capability `status` is `'available'`, `'moduleUnavailable'`, `'unsupportedOS'`, or `'unsupportedPlatform'`. Here `'available'` means the integration is supported; use the hook's `availability` for current model readiness.
 

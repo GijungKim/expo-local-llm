@@ -108,7 +108,7 @@ export function getCapabilities(): LocalLLMCapabilities {
         ? "constrained"
         : "validated"
       : "unsupported",
-    experimental: !isIOS,
+    experimental: false,
   };
 }
 

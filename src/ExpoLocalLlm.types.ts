@@ -286,8 +286,8 @@ export type LocalLLMCapabilities = {
   /** Path selected by the default `generateObject()` mode. */
   objectGenerationMode: "constrained" | "validated" | "unsupported";
   /**
-   * True where generation has not been verified on real hardware. Android is
-   * experimental until Gemini Nano generation is validated on a device.
+   * Integration maturity flag, not hardware-verification status.
+   * False for both supported integrations as of 0.10.0.
    */
   experimental: boolean;
 };

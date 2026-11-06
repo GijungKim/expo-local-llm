@@ -96,7 +96,7 @@ describe("native-present API", () => {
       tools: true,
       structuredOutput: false,
       objectGenerationMode: "validated",
-      experimental: true,
+      experimental: false,
     });
     createLLMSession({ androidModel: "previewFast", tools: [tool] });
     expect(mockSessionConstructor).toHaveBeenLastCalledWith({
@@ -166,7 +166,7 @@ describe("native-present API", () => {
       structuredOutput: false,
       structuredOutputMode: "unsupported",
       objectGenerationMode: "validated",
-      experimental: true,
+      experimental: false,
     });
 
     mockPlatform.OS = "ios";

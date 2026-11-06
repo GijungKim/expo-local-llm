@@ -1,7 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.10.0 — unreleased
 
+- Set Android’s `experimental` capability to `false`; retain the field as an integration maturity indicator. Hardware verification remains documented separately.
 - Behavior/type change: Android `generateObject()` calls without a mode now run inference instead of rejecting. `LocalLLMCapabilities` requires `objectGenerationMode`; update manually constructed capability objects and test fixtures. Unsupported-output error wording also changed; branch on error codes rather than messages.
 
 - Make `generateObject()` portable by default: automatic mode uses native schema constraints where available and validated text generation with bounded repair otherwise. Expose the selected path as `getCapabilities().objectGenerationMode`; explicit constrained and validated modes retain their strict behavior.
