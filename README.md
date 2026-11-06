@@ -21,17 +21,17 @@ Inference stays on the device, with no cloud fallback. Once the model is ready, 
 
 | | iOS 26+ (Foundation Models) | Android (Gemini Nano) |
 |---|---|---|
-| Text generation and streaming | ✅ Verified on device | ⚠️ Experimental; Gemini Nano inference not yet validated on hardware |
-| Image prompts | iOS 27+, Xcode 27+, and a ready vision-capable system model | ⚠️ Experimental; up to eight images, inference not yet validated on hardware |
-| Structured results (`generateObject`) | ✅ Native constraints + JS validation | ⚠️ Experimental; JS validation and optional repair; device inference check pending |
+| Text generation and streaming | ✅ Verified on device | ✅ Implemented |
+| Image prompts | iOS 27+, Xcode 27+, and a ready vision-capable system model | ✅ Up to eight images; requires model vision support |
+| Structured results (`generateObject`) | ✅ Native constraints + JS validation | ✅ JS schema validation and bounded repair |
 | Native schema constraints | ✅ Runtime schemas | Unavailable for runtime schemas in ML Kit; automatic mode uses validation instead |
-| Tool calling (validated primitive arguments) | ✅ Schema-constrained | ⚠️ Experimental; selected model must advertise function calling; inference not yet validated on hardware |
+| Tool calling (validated primitive arguments) | ✅ Schema-constrained | ✅ Native tools; selected model must advertise function calling |
 | Stable error codes | ✅ | ✅ |
 | Model download | Managed by the OS | `downloadModel()` with progress |
 
-**Android remains experimental.** Automated tests exercise our production session orchestration, and emulator tests exercise real SDK image requests. They do not run Gemini Nano inference or establish model quality, device eligibility, or AICore behavior. The [verification record](docs/release-verification.md) separates these checks.
+**Checkmarks indicate implemented features, not hardware certification.** Android session behavior is covered by automated tests, and real SDK image requests are tested on an emulator. Gemini Nano inference has not yet been validated on eligible hardware. See the [verification record](docs/release-verification.md) for evidence and remaining device checks.
 
-Unsupported features fail with a clear error instead of degrading silently. `getCapabilities()` reports integration support, including the path selected by `objectGenerationMode` and `experimental: true` on Android; `getModelReadiness()` reports selected-model readiness and tool support. `structuredOutput` continues to describe native constrained output only. See [how this library is verified](#how-this-library-is-verified).
+Unsupported features fail with a clear error instead of degrading silently. `getCapabilities()` reports integration support, including the path selected by `objectGenerationMode`; `getModelReadiness()` reports selected-model readiness and tool support. `structuredOutput` continues to describe native constrained output only. See [how this library is verified](#how-this-library-is-verified).
 
 ## Quick start
 
@@ -197,7 +197,7 @@ const comparison = await generate({
 });
 ```
 
-iOS images require **iOS 27+, Xcode 27+, and a ready vision-capable model**. Android image inference is experimental and model support is unknown. Use `getCapabilities().images` to inspect support; a ready text model does not guarantee vision support.
+iOS images require **iOS 27+, Xcode 27+, and a ready vision-capable model**. Android image support depends on the selected model. Use `getCapabilities().images` to inspect support; a ready text model does not guarantee vision support.
 
 Images must use local `file://` URIs; download remote images first. iOS retains completed image turns in session history. Android retains images during the current request and its tool turns, but you must attach them again on a later request. See [image requirements, capabilities, and errors](docs/images.md) for URI rules, limits, and cancellation behavior.
 
@@ -251,7 +251,7 @@ if (getCapabilities().text && (await getModelReadiness('default')).availability 
 // Call controller.abort() from your cancel action while the call is pending.
 ```
 
-Only JSON parse or schema failures permit one additional request. Each attempt uses a fresh session with the original task, schema, instructions, generation options, selected model, and image attachment records. Native errors, refusals, guardrails, cancellation, context limits, and availability failures propagate without repair. Exhausted or disabled repair rejects with `StructuredOutputValidationError`; the helper never extracts JSON from prose, coerces values, inserts fields, or removes extra fields. Validation checks structure, not factual correctness. Both platforms still need device testing of validated mode (automatic on Android or explicit); Android remains experimental.
+Only JSON parse or schema failures permit one additional request. Each attempt uses a fresh session with the original task, schema, instructions, generation options, selected model, and image attachment records. Native errors, refusals, guardrails, cancellation, context limits, and availability failures propagate without repair. Exhausted or disabled repair rejects with `StructuredOutputValidationError`; the helper never extracts JSON from prose, coerces values, inserts fields, or removes extra fields. Validation checks structure, not factual correctness. Both platforms still need device testing of validated mode (automatic on Android or explicit).
 
 Automatic and validated modes are available only in one-shot `generateObject()`. They do not change sessions, hooks, JSON streaming, or Android's rejection of native `responseFormat: 'json'`.
 
@@ -322,7 +322,7 @@ export function InventoryAssistant() {
 }
 ```
 
-Android tool calling is experimental and requires a selected model that advertises function calling. Check `await getModelReadiness('previewFast')`; both `availability === 'available'` and `tools === 'available'` are needed. Preview access requires eligible hardware and AICore Developer Preview enrollment. There is no automatic fallback to another model.
+Android tool calling requires a selected model that advertises function calling. Check `await getModelReadiness('previewFast')`; both `availability === 'available'` and `tools === 'available'` are needed. Preview access requires eligible hardware and AICore Developer Preview enrollment. There is no automatic fallback to another model.
 
 The model chooses whether to call a tool. Handlers must validate application-specific values and permissions; valid arguments alone do not authorize an action. Return strings, using `JSON.stringify()` for structured results. See [tool requirements, execution limits, and cancellation](docs/tool-calling.md).
 
@@ -380,7 +380,7 @@ The [complete API reference](docs/api.md) covers configuration, return types, ev
 - **Context window.** Neither platform trims history to fit the model's context; Android only caps it at 10 exchanges. iOS rejects with `ERR_CONTEXT_WINDOW_EXCEEDED`; call `reset()` or start a new session.
 - **One generation per session.** Overlapping requests reject with `ERR_SESSION_BUSY`. After cancelling, await the original promise before starting another request. Use separate sessions for independent conversations; events belong to their session.
 - **Guardrails.** Apple's model refuses some categories of prompt, such as interpreting personal health data. A refusal arrives as `ERR_GUARDRAIL_VIOLATION` or `ERR_REFUSAL`.
-- **Android is experimental.** The Gemini Nano SDK is in beta and its API may change. Tools require selected-model feature support. Default `generateObject()` uses text generation plus JS validation and bounded repair. Native `responseFormat: 'json'` and explicit `mode: 'constrained'` remain unsupported because ML Kit only accepts compiled Kotlin types for constrained output, with no public runtime-schema entrypoint for arbitrary JS schemas.
+- **Android model requirements.** The Gemini Nano SDK is in beta and its API may change. Tools require selected-model feature support. Default `generateObject()` uses text generation plus JS validation and bounded repair. Native `responseFormat: 'json'` and explicit `mode: 'constrained'` remain unsupported because ML Kit only accepts compiled Kotlin types for constrained output, with no public runtime-schema entrypoint for arbitrary JS schemas.
 - **Readiness gates generation.** `respond` and `streamResponse` need a session and `availability === 'available'`; cancelling and resetting work whenever a session exists.
 
 ## How this library is verified
