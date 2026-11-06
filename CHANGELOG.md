@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Behavior/type change: Android `generateObject()` calls without a mode now run inference instead of rejecting. `LocalLLMCapabilities` requires `objectGenerationMode`; update manually constructed capability objects and test fixtures. Unsupported-output error wording also changed; branch on error codes rather than messages.
+
+- Make `generateObject()` portable by default: automatic mode uses native schema constraints where available and validated text generation with bounded repair otherwise. Expose the selected path as `getCapabilities().objectGenerationMode`; explicit constrained and validated modes retain their strict behavior.
 - Reconcile Android tool-stream callbacks with the SDK’s complete final response so terminal-only text is delivered without duplication. When callbacks diverge, the final response wins: a corrective token event carries an empty `token` and replacement `accumulated`. Direct listeners must read `accumulated` rather than append tokens to reflect corrections; the hook already does.
 - Isolate Android readiness/download serialization per model, so a preview download does not block default-model status queries.
 - Clear finished download progress and recovered/model-switched readiness errors in the hook while preserving generation failures.

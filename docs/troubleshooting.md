@@ -99,7 +99,7 @@ Separate integration support from readiness and selected-model features:
 
 Android 0.9.0 implements native tools. A ready selected model without function calling rejects with `ERR_TOOL_NOT_SUPPORTED`; an unready model rejects with `ERR_MODEL_UNAVAILABLE`. For preview access, explicitly select `previewFast` and meet the [preview requirements](tool-calling.md). Rebuild older native binaries after upgrading JavaScript.
 
-For Android structured extraction, use `generateObject(prompt, { mode: 'validated', schema })`. Default/constrained `generateObject()` and hook/session `responseFormat: 'json'` remain unsupported on Android. Validated mode uses text generation plus JS validation; it does not enable constrained decoding or hook JSON streaming.
+For Android structured extraction, use `generateObject(prompt, { schema })`. Its automatic mode uses text generation plus JS validation and bounded repair. Explicit `mode: 'constrained'` and hook/session `responseFormat: 'json'` remain unsupported on Android; automatic mode does not enable constrained decoding or hook JSON streaming. Inspect `getCapabilities().objectGenerationMode` when the distinction matters.
 
 ## Android Kotlin metadata error after upgrading
 
@@ -112,7 +112,7 @@ Branch on the error's code (`errorCode` from the hook, or `getLocalLLMErrorCode(
 - `ERR_CONTEXT_WINDOW_EXCEEDED`: the conversation is too long for the model. Call `reset()` or start a new session, optionally seeded with a summary. iOS does not trim history automatically. Android retains at most ten whole exchanges, but that cap does not guarantee the request fits the model context.
 - `ERR_GUARDRAIL_VIOLATION` and `ERR_REFUSAL`: the model's safety system blocked the request. Handle them as unsuccessful requests, not as successful empty results.
 - `ERR_RATE_LIMITED`: the system is throttling on-device generation, for example in the background or after heavy use. Retry later.
-- `ERR_STRUCTURED_OUTPUT_INVALID`: returned JSON did not match the schema. In explicit validated mode, the optional repair attempt was disabled or unsuccessful; default constrained mode and iOS hook JSON mode do not repair output. The object cannot safely be used as the inferred result type.
+- `ERR_STRUCTURED_OUTPUT_INVALID`: returned JSON did not match the schema. In validated mode (selected automatically on Android or requested explicitly), the optional repair attempt was disabled or unsuccessful. Native constrained mode and iOS hook JSON mode do not repair output. The object cannot safely be used as the inferred result type.
 - A valid schema and valid JSON do not establish factual correctness. Validate application-specific requirements separately.
 - iOS constrains tool arguments to `parameters`; Android validates the complete returned batch before dispatch. Still check ranges, identifiers, permissions, and other application requirements before executing a handler.
 

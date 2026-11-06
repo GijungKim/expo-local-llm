@@ -137,24 +137,19 @@ export async function generateObject<const Definition extends Schema>(
       "generateObject() does not support tools. Use useLocalLLM() instead."
     );
   }
-  const {
-    mode = "constrained",
-    repairAttempts,
-    signal,
-    ...nativeConfig
-  } = config;
+  const { mode = "auto", repairAttempts, signal, ...nativeConfig } = config;
   if (
-    (mode !== "constrained" && mode !== "validated") ||
+    (mode !== "auto" && mode !== "constrained" && mode !== "validated") ||
     (repairAttempts !== undefined &&
       repairAttempts !== 0 &&
       repairAttempts !== 1) ||
     (signal !== undefined && !(signal instanceof AbortSignal)) ||
-    (mode === "constrained" &&
+    (mode !== "validated" &&
       (repairAttempts !== undefined || signal !== undefined))
   ) {
     throw new LocalLLMError(
       "ERR_UNSUPPORTED_REQUEST",
-      "Invalid generateObject mode or validated-only options."
+      "Invalid generateObject options."
     );
   }
   if (mode === "validated" && signal?.aborted) {
@@ -163,20 +158,33 @@ export async function generateObject<const Definition extends Schema>(
     throw error;
   }
   const capabilities = getCapabilities();
+  const selectedMode =
+    mode === "auto" ? capabilities.objectGenerationMode : mode;
   if (
-    !(mode === "validated" ? capabilities.text : capabilities.structuredOutput)
+    !(selectedMode === "validated"
+      ? capabilities.text
+      : capabilities.structuredOutput)
   ) {
     if (capabilities.status === "moduleUnavailable") {
       throw new NativeModuleUnavailableError("generateObject");
     }
     throw new LocalLLMError(
       "ERR_RESPONSE_FORMAT_NOT_SUPPORTED",
-      `Structured output is not supported on ${capabilities.platform}.`
+      `generateObject is unavailable on ${capabilities.platform}.`
     );
   }
 
-  if (mode === "validated") {
-    return generateValidatedObject(prompt, config, createLLMSession);
+  if (selectedMode === "validated") {
+    return generateValidatedObject(
+      prompt,
+      {
+        ...nativeConfig,
+        mode: "validated",
+        repairAttempts,
+        signal,
+      },
+      createLLMSession
+    );
   }
 
   const text = await generate(prompt, {

@@ -23,15 +23,15 @@ Inference stays on the device, with no cloud fallback. Once the model is ready, 
 |---|---|---|
 | Text generation and streaming | ✅ Verified on device | ⚠️ Experimental; Gemini Nano inference not yet validated on hardware |
 | Image prompts | iOS 27+, Xcode 27+, and a ready vision-capable system model | ⚠️ Experimental; up to eight images, inference not yet validated on hardware |
-| Native structured output (schema-constrained) | ✅ Constrained decoding, validated in JS | ❌ Rejected explicitly |
-| Explicit validated output (one-shot) | Text generation + JS schema validation; device check pending | ⚠️ Experimental; text generation + JS schema validation and optional repair; device inference check pending |
+| Structured results (`generateObject`) | ✅ Native constraints + JS validation | ⚠️ Experimental; JS validation and optional repair; device inference check pending |
+| Native schema constraints | ✅ Runtime schemas | Unavailable for runtime schemas in ML Kit; automatic mode uses validation instead |
 | Tool calling (validated primitive arguments) | ✅ Schema-constrained | ⚠️ Experimental; selected model must advertise function calling; inference not yet validated on hardware |
 | Stable error codes | ✅ | ✅ |
 | Model download | Managed by the OS | `downloadModel()` with progress |
 
 **Android remains experimental.** Automated tests exercise our production session orchestration, and emulator tests exercise real SDK image requests. They do not run Gemini Nano inference or establish model quality, device eligibility, or AICore behavior. The [verification record](docs/release-verification.md) separates these checks.
 
-Unsupported features fail with a clear error instead of degrading silently. `getCapabilities()` reports integration support, including `experimental: true` on Android; `getModelReadiness()` reports selected-model readiness and tool support. For explicit validated output, check the `text` capability; `structuredOutput` describes native constrained output only. See [how this library is verified](#how-this-library-is-verified).
+Unsupported features fail with a clear error instead of degrading silently. `getCapabilities()` reports integration support, including the path selected by `objectGenerationMode` and `experimental: true` on Android; `getModelReadiness()` reports selected-model readiness and tool support. `structuredOutput` continues to describe native constrained output only. See [how this library is verified](#how-this-library-is-verified).
 
 ## Quick start
 
@@ -109,7 +109,7 @@ The hook retains conversation history between requests. Use `reset()` for a new 
 
 All Android apps now require **Kotlin 2.3.0+**, including text-only apps; set `kotlinVersion` as shown above or update your native Kotlin Gradle plugin. Rebuild your iOS or Android app to include the new native image and tool APIs. An EAS Update alone cannot install them.
 
-Existing string prompts and default iOS constrained output retain their behavior. Android structured extraction requires explicit `mode: 'validated'`; hook/session `responseFormat: 'json'` remains iOS-only. See the [0.9.0 changelog](CHANGELOG.md#090--2026-11-05) for the full release.
+In the published 0.9.0 release, existing string prompts and default iOS constrained output retain their behavior. Android structured extraction requires explicit `mode: 'validated'`; hook/session `responseFormat: 'json'` remains iOS-only. The unreleased automatic mode described below removes the explicit-mode requirement. See the [0.9.0 changelog](CHANGELOG.md#090--2026-11-05) for the full release.
 
 ## Requirements
 
@@ -201,14 +201,14 @@ iOS images require **iOS 27+, Xcode 27+, and a ready vision-capable model**. And
 
 Images must use local `file://` URIs; download remote images first. iOS retains completed image turns in session history. Android retains images during the current request and its tool turns, but you must attach them again on a later request. See [image requirements, capabilities, and errors](docs/images.md) for URI rules, limits, and cancellation behavior.
 
-### Extract typed data (iOS)
+### Extract typed data
 
-`generateObject()` defaults to native constrained output: it infers the result type from the schema, constrains the model's decoding to it, and validates the JSON before returning it:
+`generateObject()` infers the result type from the schema and automatically selects the strongest available path. iOS uses native constrained decoding. Android generates text, validates every field in JavaScript, and makes at most one repair request after invalid JSON or a schema mismatch. Check `objectGenerationMode` to inspect the selected path:
 
 ```ts
 import { generateObject, getCapabilities } from 'expo-local-llm';
 
-if (getCapabilities().structuredOutputMode === 'constrained') {
+if (getCapabilities().objectGenerationMode !== 'unsupported') {
   const result = await generateObject('Classify: "Can we move the meeting to Friday?"', {
     instructions: 'Classify the message by its primary intent.',
     schema: {
@@ -219,7 +219,7 @@ if (getCapabilities().structuredOutputMode === 'constrained') {
 }
 ```
 
-A supported capability does not mean the model is ready, so handle rejected calls. A mismatch in this default mode rejects with `StructuredOutputValidationError`; it never falls back to text generation or repair.
+A supported capability does not mean the model is ready, so handle rejected calls. Provider failures never switch paths or trigger repair. Exhausted schema repair rejects with `StructuredOutputValidationError`.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/GijungKim/expo-local-llm/main/docs/structured-output.png" alt="Structured output demo — recipe JSON with constrained 'difficulty' enum on iPhone" width="320" />
@@ -227,9 +227,9 @@ A supported capability does not mean the model is ready, so handle rejected call
 
 *Real device output: the model fills in a recipe schema with `difficulty` constrained to `easy | medium | hard`. The streaming demo lives at `example/App.tsx`.*
 
-### Extract validated data (Android and iOS)
+### Choose the structured-output path explicitly
 
-Request `mode: 'validated'` explicitly to generate ordinary text and validate the complete JSON against a runtime TypeScript schema. This does **not** constrain decoding. Check `getCapabilities().text` for integration support and `getModelReadiness()` for the selected model's readiness. The existing `structuredOutput` and `structuredOutputMode` capabilities continue to describe native constrained output only.
+The default `mode: 'auto'` is portable. Request `mode: 'constrained'` to require native constraints and reject when unavailable, or `mode: 'validated'` to force ordinary text generation plus complete JSON validation. Validated mode does **not** constrain decoding. `structuredOutput` and `structuredOutputMode` describe native constraints; `objectGenerationMode` describes automatic routing.
 
 ```ts
 import { generateObject, getCapabilities, getModelReadiness } from 'expo-local-llm';
@@ -251,13 +251,13 @@ if (getCapabilities().text && (await getModelReadiness('default')).availability 
 // Call controller.abort() from your cancel action while the call is pending.
 ```
 
-Only JSON parse or schema failures permit one additional request. Each attempt uses a fresh session with the original task, schema, instructions, generation options, selected model, and image attachment records. Native errors, refusals, guardrails, cancellation, context limits, and availability failures propagate without repair. Exhausted or disabled repair rejects with `StructuredOutputValidationError`; the helper never extracts JSON from prose, coerces values, inserts fields, or removes extra fields. Validation checks structure, not factual correctness. Both platforms still need device testing of this explicit mode; Android remains experimental.
+Only JSON parse or schema failures permit one additional request. Each attempt uses a fresh session with the original task, schema, instructions, generation options, selected model, and image attachment records. Native errors, refusals, guardrails, cancellation, context limits, and availability failures propagate without repair. Exhausted or disabled repair rejects with `StructuredOutputValidationError`; the helper never extracts JSON from prose, coerces values, inserts fields, or removes extra fields. Validation checks structure, not factual correctness. Both platforms still need device testing of validated mode (automatic on Android or explicit); Android remains experimental.
 
-This mode is available only in one-shot `generateObject()`. It does not change sessions, hooks, JSON streaming, or Android's rejection of native `responseFormat: 'json'`.
+Automatic and validated modes are available only in one-shot `generateObject()`. They do not change sessions, hooks, JSON streaming, or Android's rejection of native `responseFormat: 'json'`.
 
 ### Structured output in the hook
 
-On iOS, JSON mode in the hook streams a partial object, then publishes the validated result. Android callers should use the one-shot [validated extraction helper](#extract-validated-data-android-and-ios); the hook does not accept `mode: 'validated'`.
+On iOS, JSON mode in the hook streams a partial object, then publishes the validated result. Android callers should use one-shot [`generateObject()`](#extract-typed-data); the hook does not support automatic or validated JSON generation.
 
 ```tsx
 const { streamResponse, streamedObject, completedObject } = useLocalLLM({
@@ -380,7 +380,7 @@ The [complete API reference](docs/api.md) covers configuration, return types, ev
 - **Context window.** Neither platform trims history to fit the model's context; Android only caps it at 10 exchanges. iOS rejects with `ERR_CONTEXT_WINDOW_EXCEEDED`; call `reset()` or start a new session.
 - **One generation per session.** Overlapping requests reject with `ERR_SESSION_BUSY`. After cancelling, await the original promise before starting another request. Use separate sessions for independent conversations; events belong to their session.
 - **Guardrails.** Apple's model refuses some categories of prompt, such as interpreting personal health data. A refusal arrives as `ERR_GUARDRAIL_VIOLATION` or `ERR_REFUSAL`.
-- **Android is experimental.** The Gemini Nano SDK is in beta and its API may change. Tools require selected-model feature support. Native `responseFormat: 'json'` and default/constrained `generateObject()` remain unsupported: the SDK only accepts compiled Kotlin types for constrained output, with no public runtime-schema entrypoint for arbitrary JS schemas. Explicit `generateObject(..., { mode: 'validated', schema })` uses text generation plus JS validation and bounded repair; it does not use native constrained decoding or tools.
+- **Android is experimental.** The Gemini Nano SDK is in beta and its API may change. Tools require selected-model feature support. Default `generateObject()` uses text generation plus JS validation and bounded repair. Native `responseFormat: 'json'` and explicit `mode: 'constrained'` remain unsupported because ML Kit only accepts compiled Kotlin types for constrained output, with no public runtime-schema entrypoint for arbitrary JS schemas.
 - **Readiness gates generation.** `respond` and `streamResponse` need a session and `availability === 'available'`; cancelling and resetting work whenever a session exists.
 
 ## How this library is verified

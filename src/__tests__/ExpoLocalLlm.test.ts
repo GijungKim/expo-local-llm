@@ -75,7 +75,7 @@ describe("ExpoLocalLlm", () => {
   });
 
   describe("generateObject", () => {
-    it("uses the native-module-specific error when the module is missing", async () => {
+    it("uses the native-module-specific error when automatic mode has no module", async () => {
       await expect(
         generateObject("hello", {
           schema: { answer: { type: "string" } },
