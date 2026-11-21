@@ -410,7 +410,7 @@ Existing React Native apps can use this library after [installing Expo Modules s
 
 ## Used by
 
-- [Angular Native](https://github.com/ng-native/ng-native): wraps it as the `LanguageModel` service in `@ng-native/expo`
+- Angular Native uses `expo-local-llm` for on-device inference through the `LanguageModel` service in `@ng-native/expo`. [Angular Native integration docs](https://ng-native.com/packages/expo/language-model)
 - [PulseID](https://apps.apple.com/us/app/pulseid-heart-rate-camera/id6754331991): heart rate camera
 - [Teamfit Tactics](https://apps.apple.com/us/app/teamfit-tactics-tft-fitness/id6757195493): TFT fitness
 
